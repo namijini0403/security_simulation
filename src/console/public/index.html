@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>진행 화면 (교육용 가상 데이터)</title>
+<link rel="icon" href="favicon.ico">
+<link rel="stylesheet" href="console.css">
+<script src="console.js" defer></script>
+</head>
+<body>
+<div class="band" id="fixed-notice"></div>
+
+<header class="topbar">
+  <div class="topbar-row">
+    <span class="topbar-name">진행 화면</span>
+    <nav class="chips" id="step-chips" aria-label="단계로 바로 가기"></nav>
+    <div class="nav-buttons">
+      <button type="button" class="btn btn-big" id="btn-prev">이전</button>
+      <button type="button" class="btn btn-big btn-primary" id="btn-next">다음</button>
+    </div>
+    <div class="reset-zone">
+      <button type="button" class="btn btn-danger-outline" id="btn-reset">전체 초기화</button>
+    </div>
+  </div>
+  <div class="confirm-bar hidden" id="reset-confirm" role="alertdialog" aria-labelledby="reset-confirm-text">
+    <p id="reset-confirm-text">전체 초기화를 하면 두 앱의 학생 기록, 로그인, 접속 기록, 진행 단계, 2부 선택, 공개 상태가 모두 처음으로 돌아가고 받는 쪽에도 지우기를 요청합니다. 계속할까요?</p>
+    <button type="button" class="btn btn-danger" id="btn-reset-yes">초기화 실행</button>
+    <button type="button" class="btn" id="btn-reset-no">취소</button>
+  </div>
+</header>
+
+<div class="alert alert-lost hidden" id="lost-banner" role="alert">연결이 끊겼습니다 — 시연 프로그램이 켜져 있는지 확인하세요</div>
+<div class="alert alert-warn hidden" id="action-error" role="alert">
+  <span id="action-error-text"></span>
+  <button type="button" class="btn btn-small" id="btn-error-close">닫기</button>
+</div>
+<div class="alert alert-warn hidden" id="reset-notice" role="alert">
+  <span id="reset-notice-text"></span>
+  <button type="button" class="btn btn-small" id="btn-reset-notice-close">닫기</button>
+</div>
+
+<main class="layout">
+  <section class="panel step-panel" id="step-panel" aria-live="polite">
+    <p class="step-count" id="step-count"></p>
+    <h1 id="step-title"></h1>
+    <p class="step-subtitle" id="step-subtitle"></p>
+    <div class="live" id="step-live"></div>
+    <h2 class="mini">말할 문장</h2>
+    <ol class="say" id="step-say"></ol>
+    <h2 class="mini">화면에서 할 일</h2>
+    <ol class="guide" id="step-guide"></ol>
+    <div class="quick-links hidden" id="quick-links">
+      <h2 class="mini">새 창으로 열기 (이 PC)</h2>
+      <div class="link-row" id="quick-links-row"></div>
+    </div>
+  </section>
+
+  <section class="panel switch-panel" id="switch-panel">
+    <div class="panel-head">
+      <h2>다른 기기 접속</h2>
+      <span class="state-badge" id="switch-badge"></span>
+    </div>
+    <p class="switch-message" id="switch-local"></p>
+    <div class="auto-off hidden" id="switch-auto-off">
+      <span id="switch-auto-off-text"></span>
+      <button type="button" class="btn btn-small" id="btn-switch-dismiss">알림 닫기</button>
+    </div>
+    <div class="hidden" id="switch-off-box">
+      <button type="button" class="btn btn-big btn-primary" id="btn-switch-on">켜기</button>
+    </div>
+    <div class="confirm-box hidden" id="switch-confirm" role="alertdialog" aria-labelledby="switch-confirm-text">
+      <p class="confirm-text" id="switch-confirm-text"></p>
+      <button type="button" class="btn btn-big btn-danger" id="btn-switch-yes">확인</button>
+      <button type="button" class="btn btn-big" id="btn-switch-no">취소</button>
+    </div>
+    <div class="hidden" id="switch-on-box">
+      <div class="timer-row" id="switch-timer-row">
+        <span class="timer-label">남은 시간</span>
+        <span class="timer" id="switch-timer"></span>
+        <button type="button" class="btn btn-primary" id="btn-switch-extend">연장</button>
+        <button type="button" class="btn btn-danger" id="btn-switch-off">끄기</button>
+      </div>
+      <p class="timer-warning hidden" id="switch-warning"></p>
+      <p class="scope" id="switch-scope"></p>
+      <h3 class="mini">이 PC의 내부 주소</h3>
+      <div id="switch-addresses"></div>
+      <h3 class="mini">두 번째 노트북에 입력할 주소</h3>
+      <p class="hint" id="switch-hint"></p>
+      <div id="switch-neighbor-urls"></div>
+      <h3 class="mini">노트북 한 대로 진행할 때 (이 PC에서 새 창으로 열기)</h3>
+      <div class="link-row" id="switch-local-links"></div>
+    </div>
+    <p class="guidance hidden" id="switch-guidance"></p>
+    <ul class="failures hidden" id="switch-failures"></ul>
+    <p class="inline-error hidden" id="switch-error"></p>
+  </section>
+
+  <section class="panel stage-panel hidden" id="stage-reveal">
+    <div class="stage-controls">
+      <button type="button" class="btn btn-huge btn-primary" id="btn-reveal">공개</button>
+      <p class="stage-hint" id="reveal-meta"></p>
+    </div>
+    <p class="inline-error hidden" id="reveal-error"></p>
+    <div id="reveal-body"></div>
+  </section>
+
+  <section class="panel stage-panel hidden" id="stage-part2">
+    <div class="stage-controls">
+      <span class="stage-no" id="part2-stage"></span>
+      <button type="button" class="btn btn-big btn-primary" id="btn-part2-next">2부 다음 단계</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-danger-outline" id="btn-part2-reset">2부만 처음으로</button>
+    </div>
+    <div class="confirm-bar hidden" id="part2-reset-confirm" role="alertdialog" aria-labelledby="part2-reset-text">
+      <p id="part2-reset-text">2부의 선택과 진행을 처음으로 되돌립니다. 계속할까요?</p>
+      <button type="button" class="btn btn-danger" id="btn-part2-reset-yes">2부 되돌리기</button>
+      <button type="button" class="btn" id="btn-part2-reset-no">취소</button>
+    </div>
+    <p class="inline-error big hidden" id="part2-error" role="alert"></p>
+    <div id="part2-body"></div>
+  </section>
+
+  <section class="panel stage-panel hidden" id="stage-closing">
+    <ol class="closing" id="closing-list"></ol>
+  </section>
+
+  <section class="panel log-panel" id="log-panel">
+    <div class="panel-head">
+      <h2>접속 기록</h2>
+      <span class="count-note" id="log-count"></span>
+    </div>
+    <p class="after-note hidden" id="log-after"></p>
+    <div class="scroll" id="log-scroll">
+      <table class="grid" id="log-table">
+        <thead>
+          <tr>
+            <th>시각</th><th>앱</th><th>보낸 주소</th><th>로그인한 사람</th><th>요청</th><th>결과 번호</th><th class="extra-col hidden" id="log-extra-head"></th>
+          </tr>
+        </thead>
+        <tbody id="log-rows"></tbody>
+      </table>
+      <p class="empty" id="log-empty">아직 들어온 요청이 없습니다.</p>
+    </div>
+  </section>
+
+  <section class="panel taken-panel" id="taken-panel">
+    <div class="panel-head">
+      <h2>옆 기기가 가져간 것</h2>
+    </div>
+    <div class="taken-apps" id="taken-apps"></div>
+  </section>
+
+  <section class="panel receiver-panel" id="receiver-panel">
+    <div class="panel-head">
+      <h2>받는 쪽에 도착한 것</h2>
+      <span class="state-badge" id="receiver-badge"></span>
+      <span class="count-note" id="receiver-location"></span>
+    </div>
+    <div class="address-row">
+      <label for="receiver-host">받는 쪽 주소</label>
+      <input type="text" id="receiver-host" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="60">
+      <span class="port" id="receiver-port"></span>
+      <button type="button" class="btn" id="btn-receiver-set">주소 적용</button>
+      <button type="button" class="btn btn-primary" id="btn-receiver-ping">연결 확인</button>
+    </div>
+    <p class="inline-error hidden" id="receiver-error" role="alert"></p>
+    <div class="ping hidden" id="receiver-ping"></div>
+    <div class="unreachable hidden" id="receiver-problem"></div>
+    <div class="received">
+      <div class="received-col">
+        <h3>온라인 표 <span class="count-pill" id="sheet-count"></span></h3>
+        <div class="scroll short" id="sheet-box"></div>
+      </div>
+      <div class="received-col">
+        <h3>AI 서비스 <span class="count-pill" id="ai-count"></span></h3>
+        <div class="scroll short" id="ai-box"></div>
+      </div>
+    </div>
+    <div class="failed hidden" id="failed-box">
+      <h3>받는 쪽으로 보내지 못한 것</h3>
+      <ul id="failed-list"></ul>
+    </div>
+  </section>
+</main>
+</body>
+</html>

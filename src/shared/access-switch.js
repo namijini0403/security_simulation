@@ -248,6 +248,8 @@ export function createAccessSwitch(options = {}) {
   }
 
   async function openLan(entry, address) {
+    // 주소를 묶기 직전에 다시 확인한다: 그 사이에 꺼졌으면 아예 열지 않는다.
+    if (!on || closed) return;
     const server = http.createServer(makeRequestListener(entry, true));
     const record = { server, sockets: new Set(), open: false };
     trackSockets(server, record.sockets, true);
@@ -282,13 +284,18 @@ export function createAccessSwitch(options = {}) {
     const work = [];
     for (const entry of entries.values()) {
       for (const [address, record] of [...entry.lan]) {
-        if (!wanted.includes(address) || !entry.ready) {
+        // 필요 없어진 문과, 이미 닫혀 버린 문(꺼질 때 닫았거나 다른 이유로 닫힌 것)의 기록을 치운다.
+        // 문을 여닫는 작업은 한 번에 하나씩만 하므로, 여기서 열려 있지 않은 기록은 모두 죽은 기록이다.
+        // 치워 두어야 아래에서 필요한 문을 새로 연다.
+        const dead = !record.open || !record.server.listening;
+        if (dead || !wanted.includes(address) || !entry.ready) {
           entry.lan.delete(address);
           work.push(lanFullyClosed(record));
         }
       }
     }
     await Promise.all(work);
+    if (!on || closed) return; // 닫는 동안 꺼졌으면 열지 않는다.
     const opening = [];
     for (const entry of entries.values()) {
       if (!entry.ready) continue;
@@ -339,8 +346,15 @@ export function createAccessSwitch(options = {}) {
       if (!on) return;
       const current = safeAddresses();
       const changed = current.length !== scanned.length || current.some((address, i) => address !== scanned[i]);
-      if (changed || failures.length > 0) {
-        sync().then(() => { if (changed) emit(); }, () => {});
+      // 열려 있어야 하는데 열려 있지 않은 문이 있으면 그것도 고친다.
+      const broken = [...entries.values()].some(
+        (entry) => entry.ready && current.some((address) => {
+          const record = entry.lan.get(address);
+          return record === undefined || !record.open || !record.server.listening;
+        }),
+      );
+      if (changed || broken || failures.length > 0) {
+        sync().then(() => { if (changed || broken) emit(); }, () => {});
       }
     }, rescanMs);
     if (typeof rescanId.unref === 'function') rescanId.unref();
@@ -398,7 +412,7 @@ export function createAccessSwitch(options = {}) {
     if (!on) return [];
     return scanned.filter((address) => {
       const record = entry.lan.get(address);
-      return record !== undefined && record.open;
+      return record !== undefined && record.open && record.server.listening;
     });
   }
 

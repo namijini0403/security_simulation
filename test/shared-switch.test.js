@@ -559,3 +559,113 @@ test('실제 내부 주소: 켜진 뒤에 등록한 서버도 열리고, 주소�
   assert.equal(sw.status().on, true);
   assert.equal(sw.status().noInternalAddress, true);
 });
+
+// ---------------------------------------------------------------------------
+// 끄기와 켜기가 바짝 붙어 일어나도 "켜짐"이면 정말 열려 있어야 한다.
+// ---------------------------------------------------------------------------
+
+test('실제 내부 주소: 끄기를 기다리지 않고 바로 다시 켜도 정말 열린다', { skip: lanSkip }, async (t) => {
+  const sw = createAccessSwitch({ rescanMs: 0 });
+  t.after(() => sw.close());
+  const { port } = await sw.listen({ name: 'app1', port: 0, handler: counterHandler() });
+  await sw.turnOn({ confirmed: true });
+  sw.turnOff(); // 기다리지 않는다.
+  const again = await sw.turnOn({ confirmed: true });
+  assert.equal(again.ok, true);
+  const status = sw.status();
+  assert.equal(status.on, true);
+  assert.deepEqual(status.failures, []);
+  assert.deepEqual(sw.urlsFor('app1', '/neighbor'), lanAddresses.map((a) => `http://${a}:${port}/neighbor`));
+  assert.equal(await canConnect(lanAddress, port), true, '켜져 있다고 나오면 내부 주소로 연결되어야 한다');
+  assert.equal((await getJson(`http://${lanAddress}:${port}/`)).status, 200);
+
+  // 여러 번 바짝 붙여도 마지막 상태대로다.
+  sw.turnOff();
+  sw.turnOn({ confirmed: true });
+  sw.turnOff();
+  await sw.turnOn({ confirmed: true });
+  assert.equal(await canConnect(lanAddress, port), true);
+  sw.turnOn({ confirmed: true });
+  await sw.turnOff();
+  assert.equal(sw.status().on, false);
+  assert.equal(await canConnect(lanAddress, port), false);
+});
+
+test('실제 내부 주소: 시간이 지난 것을 켜는 순간에 알아채도 정말 열린다', { skip: lanSkip }, async (t) => {
+  const clock = fakeClock();
+  const sw = createAccessSwitch({
+    now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer, limitMs: 1000, rescanMs: 0,
+  });
+  t.after(() => sw.close());
+  const { port } = await sw.listen({ name: 'app1', port: 0, handler: counterHandler() });
+  await sw.turnOn({ confirmed: true });
+  assert.equal(await canConnect(lanAddress, port), true);
+  clock.advance(1001); // 타이머는 실행하지 않는다. 다시 켜는 순간에 꺼짐과 켜짐이 잇달아 일어난다.
+  const again = await sw.turnOn({ confirmed: true });
+  assert.equal(again.ok, true);
+  const status = sw.status();
+  assert.equal(status.on, true);
+  assert.equal(status.remainingMs, 1000);
+  assert.equal(status.autoOff, false);
+  assert.deepEqual(status.failures, []);
+  assert.deepEqual(sw.urlsFor('app1'), lanAddresses.map((a) => `http://${a}:${port}/`));
+  assert.equal(await canConnect(lanAddress, port), true, '켜져 있다고 나오면 내부 주소로 연결되어야 한다');
+  clock.advance(1000);
+  assert.equal(sw.status().on, false);
+  assert.equal(await canConnect(lanAddress, port), false);
+});
+
+test('실제 내부 주소: 다시 살피면 닫혀 버린 문을 다시 연다', { skip: lanSkip }, async (t) => {
+  const sw = createAccessSwitch({ rescanMs: 0 });
+  t.after(() => sw.close());
+  const { port } = await sw.listen({ name: 'app1', port: 0, handler: counterHandler() });
+  await sw.turnOn({ confirmed: true });
+  // 다른 기기 쪽 문이 어떤 이유로 닫혀 버린 상황을 만든다(같은 PC 쪽 문은 그대로 둔다).
+  const servers = process._getActiveHandles().filter(
+    (handle) => handle instanceof net.Server && handle.address() && handle.address().port === port
+      && handle.address().address === lanAddress,
+  );
+  assert.equal(servers.length, 1);
+  await new Promise((resolve) => { servers[0].close(resolve); servers[0].closeAllConnections(); });
+  assert.equal(await canConnect(lanAddress, port), false);
+  assert.deepEqual(sw.urlsFor('app1'), [], '닫힌 문의 주소를 열려 있다고 알려 주지 않는다');
+  await sw.refresh();
+  assert.equal(await canConnect(lanAddress, port), true);
+  assert.deepEqual(sw.urlsFor('app1'), lanAddresses.map((a) => `http://${a}:${port}/`));
+});
+
+test('실제 내부 주소: 문을 여는 작업이 진행 중일 때 꺼도 열리지 않는다', { skip: lanSkip }, async (t) => {
+  let addresses = [];
+  let listed = 0;
+  const sw = createAccessSwitch({ listAddresses: () => { listed += 1; return addresses; }, rescanMs: 0 });
+  t.after(() => sw.close());
+  const { port } = await sw.listen({ name: 'app1', port: 0, handler: counterHandler() });
+  await sw.turnOn({ confirmed: true });
+  addresses = [lanAddress];
+  const refreshing = sw.refresh(); // 새 주소로 문을 열려는 작업이 줄에 서 있다.
+  const off = sw.turnOff();
+  await Promise.all([refreshing, off]);
+  assert.equal(sw.status().on, false);
+  assert.deepEqual(sw.urlsFor('app1'), []);
+  assert.equal(await canConnect(lanAddress, port), false);
+  assert.ok(listed > 0);
+});
+
+test('실제 내부 주소: 닫혀 버린 문은 주기적으로 살필 때도 다시 열린다', { skip: lanSkip }, async (t) => {
+  const sw = createAccessSwitch({ rescanMs: 50 });
+  t.after(() => sw.close());
+  const { port } = await sw.listen({ name: 'app1', port: 0, handler: counterHandler() });
+  await sw.turnOn({ confirmed: true });
+  const servers = process._getActiveHandles().filter(
+    (handle) => handle instanceof net.Server && handle.address() && handle.address().port === port
+      && handle.address().address === lanAddress,
+  );
+  assert.equal(servers.length, 1);
+  const repaired = new Promise((resolve) => {
+    sw.onChange(() => { if (sw.urlsFor('app1').length === lanAddresses.length) resolve(); });
+  });
+  await new Promise((resolve) => { servers[0].close(resolve); servers[0].closeAllConnections(); });
+  assert.deepEqual(sw.urlsFor('app1'), []);
+  await repaired;
+  assert.equal(await canConnect(lanAddress, port), true);
+});

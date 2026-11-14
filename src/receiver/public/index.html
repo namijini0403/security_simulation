@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>받는 쪽 (교육용 가상 온라인 표 · AI 서비스)</title>
+  <link rel="stylesheet" href="/receiver.css">
+</head>
+<body>
+  <header class="banner">
+    <p class="banner-fixed">교육용 실습 / 100% 합성 데이터 / 실제 개인정보 입력 금지</p>
+    <p class="banner-note">이 화면은 실제 온라인 표·AI 서비스가 아닙니다. 교육용으로 흉내 낸 별도 프로그램이며, 진짜 AI를 부르지 않습니다.</p>
+  </header>
+
+  <main>
+    <h1>받는 쪽 <span class="h1-sub">가상의 온라인 표 · AI 서비스</span></h1>
+
+    <p id="lost" class="notice notice-alert" role="alert" hidden>받는 쪽 프로그램과 연결이 끊겼습니다. 프로그램이 꺼져 있으면 다시 실행한 뒤 이 화면을 새로 열어 주세요.</p>
+
+    <section class="panel" aria-labelledby="switch-title">
+      <h2 id="switch-title">다른 기기 접속</h2>
+
+      <p id="switch-auto-off" class="notice notice-alert" role="alert" hidden>
+        <span id="switch-auto-off-text">다른 기기 접속이 자동으로 꺼졌습니다</span>
+        <button type="button" id="btn-dismiss" class="btn btn-small">알림 닫기</button>
+      </p>
+
+      <div id="switch-off" hidden>
+        <p class="state"><span class="badge badge-off">꺼져 있음</span> 지금은 이 PC에서만 열립니다. 다른 기기에서는 연결되지 않습니다.</p>
+        <p><button type="button" id="btn-on" class="btn btn-primary">켜기</button></p>
+      </div>
+
+      <div id="switch-confirm" class="confirm" role="alertdialog" aria-labelledby="confirm-title" hidden>
+        <p id="confirm-title" class="confirm-title">전용 실습용 연결에서만 켜세요. 학교 와이파이·공용 와이파이에서는 켜지 마세요</p>
+        <p>켜면 같은 연결 안의 다른 기기가 이 받는 쪽으로 가상 데이터를 보낼 수 있게 됩니다. <span id="confirm-limit">30</span>분 뒤 자동으로 꺼집니다.</p>
+        <p>
+          <button type="button" id="btn-confirm" class="btn btn-danger">확인</button>
+          <button type="button" id="btn-cancel" class="btn">취소</button>
+        </p>
+      </div>
+
+      <div id="switch-on" hidden>
+        <p class="state">
+          <span class="badge badge-on">켜져 있음</span>
+          남은 시간 <strong id="remaining" class="remaining">--:--</strong>
+        </p>
+        <p id="switch-warning" class="notice notice-alert" role="alert" hidden>곧 자동으로 꺼집니다. 계속 쓰려면 '연장'을 누르세요.</p>
+        <p>
+          <button type="button" id="btn-extend" class="btn btn-primary">연장</button>
+          <button type="button" id="btn-off" class="btn btn-danger">끄기</button>
+          <span class="hint">'연장'을 누르면 그때부터 다시 <span id="extend-limit">30</span>분입니다. 시간이 다 되면 자동으로 꺼집니다.</span>
+        </p>
+
+        <dl class="facts">
+          <dt>지금 열려 있는 범위</dt>
+          <dd>같은 연결 안의 다른 기기가 이 받는 쪽에 가상 데이터를 보내고, 받은 내용을 확인하고 지울 수 있습니다. 이 화면과 이 스위치는 다른 기기에서 열리지 않습니다.</dd>
+          <dt>이 PC의 내부 주소</dt>
+          <dd><ul id="addresses" class="address-list"></ul></dd>
+          <dt>첫 번째 노트북 진행 화면의 '받는 쪽 주소' 칸에 입력할 주소</dt>
+          <dd>
+            <ul id="open-addresses" class="address-list address-big"></ul>
+            <p id="open-port-note" class="hint" hidden></p>
+          </dd>
+        </dl>
+        <p id="no-address" class="notice notice-alert" hidden></p>
+        <ul id="failures" class="notice notice-alert" hidden></ul>
+      </div>
+
+      <p id="switch-error" class="notice notice-alert" role="alert" hidden></p>
+    </section>
+
+    <section class="panel" aria-labelledby="received-title">
+      <div class="received-head">
+        <h2 id="received-title">받은 내용</h2>
+        <div class="clear-box">
+          <button type="button" id="btn-clear" class="btn">받은 내용 모두 지우기</button>
+          <span id="clear-confirm" hidden>
+            <span class="clear-question">모두 지울까요?</span>
+            <button type="button" id="btn-clear-yes" class="btn btn-danger">지우기</button>
+            <button type="button" id="btn-clear-no" class="btn">취소</button>
+          </span>
+        </div>
+      </div>
+      <p class="hint">보내는 쪽 앱에서 기록을 지워도 여기에는 알려지지 않습니다. 받은 내용은 여기에서 지우기 전까지 남습니다. 새로 도착하면 자동으로 나타납니다.</p>
+
+      <div class="tabs" role="tablist" aria-label="받은 내용 종류">
+        <button type="button" role="tab" id="tab-sheet" class="tab" aria-selected="true" aria-controls="panel-sheet">온라인 표 <span id="count-sheet" class="count">0</span></button>
+        <button type="button" role="tab" id="tab-ai" class="tab" aria-selected="false" aria-controls="panel-ai">AI 서비스 <span id="count-ai" class="count">0</span></button>
+      </div>
+
+      <div id="panel-sheet" role="tabpanel" aria-labelledby="tab-sheet">
+        <p id="empty-sheet" class="empty">아직 받은 줄이 없습니다.</p>
+        <div class="table-wrap">
+          <table id="sheet-table" hidden>
+            <thead>
+              <tr>
+                <th scope="col">받은 시각</th>
+                <th scope="col">보낸 쪽</th>
+                <th scope="col">학생 번호</th>
+                <th scope="col">이름</th>
+                <th scope="col">반</th>
+                <th scope="col">국어</th>
+                <th scope="col">수학</th>
+                <th scope="col">사회</th>
+                <th scope="col">과학</th>
+                <th scope="col">영어</th>
+                <th scope="col">종합의견</th>
+                <th scope="col">보호자 이름</th>
+                <th scope="col">보호자 연락처</th>
+              </tr>
+            </thead>
+            <tbody id="sheet-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="panel-ai" role="tabpanel" aria-labelledby="tab-ai" hidden>
+        <p class="hint">AI 서비스가 돌려주는 초안은 사전 작성된 모의 응답입니다.</p>
+        <p id="empty-ai" class="empty">아직 받은 내용이 없습니다.</p>
+        <ol id="ai-list" class="ai-list"></ol>
+      </div>
+
+      <p id="clear-error" class="notice notice-alert" role="alert" hidden></p>
+    </section>
+  </main>
+
+  <script src="/receiver.js"></script>
+</body>
+</html>

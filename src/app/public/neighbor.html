@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6학년 가상반 성적 관리 시스템 (교육용 가상 데이터)</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="band">교육용 실습 / 100% 합성 데이터 / 실제 개인정보 입력 금지</div>
+<div class="wrap">
+  <header class="page">
+    <h1>옆 사람 화면</h1>
+    <div class="app-name" id="app-name"></div>
+  </header>
+
+  <section class="card">
+    <p class="note" style="font-size:1.15rem">주소창이나 브라우저 기본 도구로 누구나 할 수 있는 요청을 버튼으로 옮긴 것입니다</p>
+    <div class="row">
+      <span>지금 요청하는 사람: <b id="who">로그인 안 함</b></span>
+      <div class="spacer"></div>
+      <button type="button" class="minor" id="logout">로그아웃</button>
+    </div>
+
+    <div class="buttons">
+      <button type="button" id="btn-roster">명단 주소 직접 열기</button>
+      <button type="button" id="btn-login">학부모로 로그인</button>
+      <button type="button" id="btn-mine">내 아이 성적표 조회</button>
+      <div class="combo">
+        <select id="pick-id"></select>
+        <button type="button" id="btn-pick">학생번호만 바꿔 조회</button>
+      </div>
+      <button type="button" id="btn-collect">반 전체 수집</button>
+      <button type="button" id="btn-list">숨겨진 담임 기능 부르기</button>
+      <button type="button" id="btn-fix">내 아이 성적 고치기</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>반 전체 수집 결과</h2>
+    <div class="counters">
+      <span>받아낸 인원 <b id="count-got">0</b></span>
+      <span>거절된 요청 <b id="count-refused">0</b></span>
+    </div>
+    <div id="collect-table"></div>
+  </section>
+
+  <section class="card">
+    <h2>요청 결과</h2>
+    <div class="feed" id="feed"></div>
+  </section>
+</div>
+<script src="neighbor.js"></script>
+</body>
+</html>

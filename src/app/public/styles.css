@@ -1,0 +1,295 @@
+/* 성적 관리 앱 화면 공통 모양 (두 앱이 똑같이 쓴다).
+   프로젝터에 나오므로 큰 글씨와 높은 대비를 쓴다. 외부에서 가져오는 글꼴·그림·스크립트가 없다. */
+
+:root {
+  color-scheme: light;
+  --ink: #10151c;
+  --paper: #f4f6fb;
+  --card: #ffffff;
+  --line: #c3ccd9;
+  --accent: #1d4ed8;
+  --accent-ink: #ffffff;
+  --band: #0b1f3a;
+  --band-ink: #ffffff;
+  --note: #5a6472;
+  --ok: #0f5132;
+  --ok-bg: #d7f0df;
+  --bad: #7a1420;
+  --bad-bg: #f7dadd;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 18px;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Nanum Gothic", system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.band {
+  background: var(--band);
+  color: var(--band-ink);
+  text-align: center;
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+  padding: 0.9rem 1rem;
+}
+
+.wrap {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+header.page {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 3px solid var(--line);
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+header.page h1 {
+  font-size: 1.7rem;
+  margin: 0;
+}
+
+.app-name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.note {
+  color: var(--note);
+  font-size: 1rem;
+}
+
+.card {
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  padding: 1.4rem;
+  margin-bottom: 1.4rem;
+}
+
+h2 {
+  font-size: 1.4rem;
+  margin: 0 0 1rem;
+}
+
+label {
+  display: block;
+  font-weight: 700;
+  margin: 0.9rem 0 0.3rem;
+}
+
+input,
+select,
+button {
+  font-family: inherit;
+  font-size: 1.15rem;
+}
+
+input[type="text"],
+input[type="password"],
+select {
+  width: 100%;
+  padding: 0.7rem;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+button {
+  cursor: pointer;
+  padding: 0.75rem 1.2rem;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+button.minor {
+  background: #fff;
+  color: var(--accent);
+}
+
+button.danger {
+  background: #fff;
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.spacer {
+  flex: 1;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+
+th,
+td {
+  border: 1px solid var(--line);
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+  font-size: 1.05rem;
+}
+
+th {
+  background: #eef2f9;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.pill.ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.pill.bad {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+
+.feedback {
+  margin-top: 0.8rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.roster-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.roster-list button {
+  flex: 0 0 auto;
+}
+
+.hidden {
+  display: none;
+}
+
+.feed {
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5rem;
+  background: #fff;
+}
+
+.entry {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.7rem;
+  background: #fbfcfe;
+}
+
+.entry dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2rem 0.9rem;
+  margin: 0 0 0.5rem;
+}
+
+.entry dt {
+  font-weight: 700;
+  color: var(--note);
+}
+
+.entry dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+pre.body {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0.4rem 0 0;
+}
+
+.counters {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0.5rem 0 1rem;
+}
+
+.counters b {
+  font-size: 1.6rem;
+  color: var(--accent);
+}
+
+.buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.buttons .combo {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.buttons .combo select {
+  flex: 1;
+}
+
+@media (max-width: 640px) {
+  header.page h1 {
+    font-size: 1.35rem;
+  }
+  .band {
+    font-size: 1.05rem;
+  }
+}

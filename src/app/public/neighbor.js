@@ -247,11 +247,23 @@
         el('app-name').textContent = result.json.label;
       }
     });
-    ask('GET', '/api/me').then(function (result) {
+    refreshWho();
+    // 같은 브라우저의 다른 창에서 로그인이 바뀌었을 수 있으므로,
+    // 이 창으로 돌아올 때마다 지금 누구로 로그인되어 있는지 다시 물어본다.
+    window.addEventListener('focus', refreshWho);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) refreshWho();
+    });
+  }
+
+  function refreshWho() {
+    return ask('GET', '/api/me').then(function (result) {
       if (result.status === 200 && result.json && typeof result.json.loginId === 'string') {
         currentLogin = result.json.loginId;
-        el('who').textContent = who();
+      } else if (result.status > 0) {
+        currentLogin = null;
       }
+      el('who').textContent = who();
     });
   }
 

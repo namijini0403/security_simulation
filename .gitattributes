@@ -1,0 +1,4 @@
+# 더블클릭 실행 파일의 줄 끝을 고정한다.
+# Windows용 .bat은 CRLF, macOS용 .command는 LF여야 어느 컴퓨터에서 내려받아도 그대로 실행된다.
+*.bat text eol=crlf
+*.command text eol=lf

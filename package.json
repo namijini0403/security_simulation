@@ -1,0 +1,16 @@
+{
+  "name": "local-is-not-safe-demo",
+  "version": "1.0.0",
+  "description": "교육용 시연 앱 (100% 가상 데이터). 인터넷에 배포하지 마세요.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "demo": "node src/demo.js",
+    "receiver": "node src/receiver/main.js",
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}

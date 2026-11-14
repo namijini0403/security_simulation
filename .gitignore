@@ -1,0 +1,5 @@
+node_modules
+.dryforge
+*.log
+.DS_Store
+Thumbs.db

@@ -10,6 +10,7 @@
   var COLLECT_GAP_MS = 150; // 반 전체 수집에서 요청 사이 간격(조정 가능).
   var ALL_GOOD = { '국어': '잘함', '수학': '잘함', '사회': '잘함', '과학': '잘함', '영어': '잘함' };
 
+  var NOT_LOGGED_IN = 400 + 1; // 서버가 "로그인이 필요합니다"라고 답할 때의 결과 번호.
   var el = function (id) { return document.getElementById(id); };
   var currentLogin = null; // 마지막으로 로그인에 성공한 사람 또는 /api/me가 알려 준 사람.
 
@@ -41,6 +42,12 @@
   // ---------------------------------------------------------------- 결과 한 줄 그리기
 
   function addEntry(method, path, studentId, result) {
+    // 서버가 "로그인이 필요하다"고 답했다면 지금은 로그인된 사람이 없는 것이다
+    // (예: 전체 초기화로 로그인이 풀린 경우). 기억해 둔 이름을 쓰지 않는다.
+    if (result.status === NOT_LOGGED_IN) {
+      currentLogin = null;
+      el('who').textContent = who();
+    }
     var entry = document.createElement('div');
     entry.className = 'entry';
 

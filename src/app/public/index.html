@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6학년 가상반 성적 관리 시스템 (교육용 가상 데이터)</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="band">교육용 실습 / 100% 합성 데이터 / 실제 개인정보 입력 금지</div>
+<div class="wrap">
+  <header class="page">
+    <h1>6학년 가상반 성적 관리 시스템 (교육용 가상 데이터)</h1>
+    <div class="app-name" id="app-name"></div>
+  </header>
+
+  <!-- 로그인 화면: 값을 직접 타이핑하는 칸은 이 안의 두 칸뿐이다. -->
+  <section class="card" id="login-view">
+    <h2>로그인</h2>
+    <form id="login-form" autocomplete="off">
+      <label for="login-id">로그인 ID</label>
+      <input type="text" id="login-id" name="login-id" autocomplete="off" spellcheck="false">
+      <label for="login-pw">비밀번호</label>
+      <input type="password" id="login-pw" name="login-pw" autocomplete="off">
+      <div class="row" style="margin-top:1rem">
+        <button type="submit">로그인</button>
+      </div>
+      <p class="note">교육용 계정이며 실제 인증 체계를 대신하지 않습니다</p>
+      <p class="feedback" id="login-msg"></p>
+    </form>
+  </section>
+
+  <!-- 학부모 화면: '내 아이 성적표'만 보인다. -->
+  <section class="card hidden" id="parent-view">
+    <div class="row">
+      <h2 style="margin:0">내 아이 성적표</h2>
+      <div class="spacer"></div>
+      <button type="button" class="minor" id="parent-logout">로그아웃</button>
+    </div>
+    <div id="parent-card"></div>
+  </section>
+
+  <!-- 담임 화면 -->
+  <section class="card hidden" id="teacher-view">
+    <div class="row">
+      <h2 style="margin:0">반 명단</h2>
+      <div class="spacer"></div>
+      <button type="button" class="minor" id="teacher-refresh">명단 새로 고침</button>
+      <button type="button" class="minor" id="teacher-logout">로그아웃</button>
+    </div>
+    <div class="roster-list" id="roster-list"></div>
+
+    <div id="detail" class="hidden" style="margin-top:1.5rem">
+      <h2 id="detail-title"></h2>
+      <div id="detail-card"></div>
+
+      <h2 style="margin-top:1.5rem">성적 고치기</h2>
+      <div id="rating-editors"></div>
+      <div class="row" style="margin-top:1rem">
+        <button type="button" id="save-ratings">성적 저장</button>
+        <button type="button" class="minor" id="ai-draft">AI 종합의견 초안 만들기</button>
+      </div>
+      <p class="feedback" id="save-msg"></p>
+      <div id="draft-box"></div>
+
+      <h2 style="margin-top:1.5rem">학생 기록 삭제</h2>
+      <div class="row" id="delete-row">
+        <button type="button" class="danger" id="delete-start">학생 기록 삭제</button>
+      </div>
+      <p class="feedback" id="delete-msg"></p>
+    </div>
+  </section>
+</div>
+<script src="index.js"></script>
+</body>
+</html>

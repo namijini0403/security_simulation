@@ -217,6 +217,9 @@ export const TEXT = deepFreeze({
 
   // 전체 초기화
   resetReceiverFailed: '받는 쪽은 지우지 못했습니다. 받는 쪽 화면에서 직접 지우세요',
+  // 지우지 못한 이유 두 가지(실제로 일어난 일에 따라 고른다)
+  resetReceiverNoAnswer: '받는 쪽이 지우기 요청에 대답하지 않았습니다',
+  resetReceiverRefused: '받는 쪽이 대답은 했지만 지우지 않았습니다',
   resetRunning: '초기화하는 중입니다. 잠시 뒤 다시 눌러 주세요.',
 });
 

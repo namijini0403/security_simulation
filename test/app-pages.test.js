@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
+import vm from 'node:vm';
 
 import { DEFAULT_PUBLIC_DIR } from '../src/app/server.js';
 import { ALL_GOOD, NEIGHBOR, call, startApps } from './app-helpers.js';
@@ -204,6 +205,173 @@ describe('화면 파일의 내용', () => {
     for (const name of scripts) {
       const result = spawnSync(process.execPath, ['--check', path.join(DEFAULT_PUBLIC_DIR, name)], { encoding: 'utf8' });
       assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+    }
+  });
+});
+
+// 화면 스크립트를 아주 작은 흉내 화면(필요한 만큼만 만든 요소) 위에서 그대로 실행한다.
+// fetch가 거절되는 상황(서버가 꺼졌거나 연결이 끊김)에서 화면이 어떻게 되는지 본다.
+function fakePage(html, fetchImpl) {
+  function node(tag) {
+    const listeners = {};
+    const classes = new Set();
+    const self = {
+      tag,
+      children: [],
+      textContent: '',
+      className: '',
+      value: '',
+      disabled: false,
+      style: {},
+      classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name), contains: (name) => classes.has(name) },
+      get firstChild() { return self.children[0] || null; },
+      appendChild(child) { self.children.push(child); return child; },
+      insertBefore(child, before) {
+        const at = before ? self.children.indexOf(before) : -1;
+        if (at < 0) self.children.push(child); else self.children.splice(at, 0, child);
+        return child;
+      },
+      removeChild(child) { self.children.splice(self.children.indexOf(child), 1); return child; },
+      setAttribute() {},
+      getAttribute() { return null; },
+      querySelectorAll() { return []; },
+      addEventListener(type, handler) { (listeners[type] = listeners[type] || []).push(handler); },
+      fire(type) { for (const handler of listeners[type] || []) handler({ preventDefault() {} }); },
+      /** 이 요소와 그 아래의 글자를 모두 이은 것. */
+      text() { return [self.textContent, ...self.children.map((child) => child.text())].join(' '); },
+    };
+    return self;
+  }
+  const byId = {};
+  for (const [, id] of html.matchAll(/\bid="([^"]+)"/g)) byId[id] = node('div');
+  const document = {
+    readyState: 'complete',
+    hidden: false,
+    getElementById: (id) => byId[id] || null,
+    createElement: (tag) => node(tag),
+    addEventListener() {},
+  };
+  const timers = [];
+  const context = {
+    document,
+    window: { addEventListener() {} },
+    fetch: fetchImpl,
+    setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    JSON, String, Array, Object, Promise, encodeURIComponent,
+  };
+  return { byId, context, timers };
+}
+const settle = async () => { for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+
+describe('연결이 되지 않을 때의 화면 (fetch가 거절됨)', () => {
+  const failing = (calls) => (urlPath, init) => {
+    calls.push(`${init.method} ${urlPath}`);
+    return Promise.reject(new TypeError('Failed to fetch'));
+  };
+
+  test('옆 사람 화면: 반 전체 수집이 멈추고 버튼이 다시 눌리며, 결과 번호를 지어내지 않고 "연결하지 못했습니다"를 보여준다', async () => {
+    const calls = [];
+    const page = fakePage(read('neighbor.html'), failing(calls));
+    vm.runInNewContext(read('neighbor.js'), page.context);
+    await settle();
+    const feed = page.byId.feed;
+    assert.equal(feed.children.length, 0, '화면을 열 때의 확인 요청은 결과 목록에 넣지 않는다');
+    assert.equal(page.byId.who.textContent, '로그인 안 함');
+
+    calls.length = 0;
+    page.byId['btn-collect'].fire('click');
+    assert.equal(page.byId['btn-collect'].disabled, true, '수집하는 동안에는 눌리지 않는다');
+    await settle();
+    assert.equal(page.byId['btn-collect'].disabled, false, '연결이 안 되면 버튼이 다시 눌린다');
+    assert.deepEqual(calls, ['GET /api/students/TEST-1001'], '첫 요청이 가지 못했으면 나머지 19개를 보내지 않는다');
+    assert.equal(page.timers.length, 0, '다음 요청을 예약하지 않는다');
+    assert.equal(feed.children.length, 1);
+    const entry = feed.children[0].text();
+    assert.match(entry, /GET \/api\/students\/TEST-1001/);
+    assert.match(entry, /연결하지 못했습니다/);
+    assert.match(entry, /Failed to fetch/, '브라우저가 실제로 알려 준 내용을 그대로 붙인다');
+    assert.match(entry, /결과 번호\s+응답 없음/);
+    assert.doesNotMatch(entry.split('결과 번호')[1], /\d|null|undefined/, '결과 번호를 지어내지 않는다');
+    assert.equal(page.byId['count-got'].textContent, '0');
+    assert.equal(page.byId['count-refused'].textContent, '0', '서버가 거절한 것이 아니므로 거절로 세지 않는다');
+
+    // 다시 누르면 다시 시도한다(새로 고침이 필요 없다).
+    page.byId['btn-collect'].fire('click');
+    await settle();
+    assert.equal(calls.length, 2);
+    assert.equal(page.byId['btn-collect'].disabled, false);
+
+    // 다른 버튼들도 같은 표시를 남긴다.
+    for (const id of ['btn-roster', 'btn-login', 'btn-mine', 'btn-pick', 'btn-list', 'btn-fix', 'logout']) {
+      const before = feed.children.length;
+      page.byId[id].fire('click');
+      await settle();
+      assert.equal(feed.children.length, before + 1, id);
+      assert.match(feed.children[0].text(), /연결하지 못했습니다/, id);
+      assert.match(feed.children[0].text(), /결과 번호\s+응답 없음/, id);
+    }
+    assert.equal(page.byId.who.textContent, '로그인 안 함');
+  });
+
+  test('옆 사람 화면: 수집 도중에 연결이 끊기면 그때까지 받은 것은 남기고 거기서 멈춘다', async () => {
+    const calls = [];
+    const record = (id) => ({ id, name: `가상학생${id.slice(-2)}`, ratings: {}, comment: '', guardianName: '', guardianPhone: '' });
+    const fetchImpl = (urlPath, init) => {
+      calls.push(`${init.method} ${urlPath}`);
+      const id = urlPath.split('/').pop();
+      if (!urlPath.startsWith('/api/students/') || calls.filter((line) => line.includes('/api/students/')).length > 3) {
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
+      return Promise.resolve({ status: 200, text: () => Promise.resolve(JSON.stringify(record(id))) });
+    };
+    const page = fakePage(read('neighbor.html'), fetchImpl);
+    vm.runInNewContext(read('neighbor.js'), page.context);
+    await settle();
+    calls.length = 0;
+    page.byId['btn-collect'].fire('click');
+    for (let i = 0; i < 6; i += 1) {
+      await settle();
+      const next = page.timers.shift();
+      if (next) next();
+    }
+    await settle();
+    assert.equal(calls.length, 4, '네 번째 요청이 가지 못한 뒤에는 더 보내지 않는다');
+    assert.equal(page.byId['count-got'].textContent, '3');
+    assert.equal(page.byId['count-refused'].textContent, '0');
+    assert.equal(page.byId['btn-collect'].disabled, false);
+    assert.match(page.byId.feed.children[0].text(), /연결하지 못했습니다/);
+    assert.match(page.byId.feed.children[1].text(), /결과 번호\s+200/);
+  });
+
+  test('메인 화면: 연결이 안 되면 로그인 화면에 "연결하지 못했습니다"가 나오고, 결과 번호를 지어내지 않는다', async () => {
+    const calls = [];
+    const page = fakePage(read('index.html'), failing(calls));
+    vm.runInNewContext(read('index.js'), page.context);
+    await settle();
+    assert.equal(page.byId['login-view'].classList.contains('hidden'), false, '로그인 화면이 보인다');
+    assert.match(page.byId['login-msg'].textContent, /연결하지 못했습니다/);
+    page.byId['login-msg'].textContent = '';
+    page.byId['login-form'].fire('submit');
+    await settle();
+    assert.match(page.byId['login-msg'].textContent, /로그인하지 못했습니다/);
+    assert.match(page.byId['login-msg'].textContent, /연결하지 못했습니다/);
+    assert.doesNotMatch(page.byId['login-msg'].textContent, /결과 번호|null|undefined/);
+    // 담임 화면의 버튼들
+    page.byId['teacher-refresh'].fire('click');
+    await settle();
+    assert.match(page.byId['roster-list'].text(), /명단을 불러오지 못했습니다.*연결하지 못했습니다/);
+    assert.doesNotMatch(page.byId['roster-list'].text(), /결과 번호|null|undefined/);
+    page.byId['teacher-logout'].fire('click');
+    await settle();
+    assert.match(page.byId['login-msg'].textContent, /연결하지 못/);
+  });
+
+  test('연결 실패는 요청을 보내는 한 곳(ask)에서 받아 결과로 바꾼다', () => {
+    for (const name of ['index.js', 'neighbor.js']) {
+      const script = read(name);
+      assert.equal((script.match(/\bfetch\(/g) || []).length, 1, name);
+      assert.match(script, /status: null/, name);
+      assert.doesNotMatch(script, /status: 0\b/, name);
     }
   });
 });

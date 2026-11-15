@@ -15,13 +15,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createAccessSwitch, SWITCH_MESSAGES } from '../shared/access-switch.js';
-import { CLASS_NAME, RATING_VALUES, SUBJECTS, isValidStudentId } from '../shared/data.js';
+import { RATING_VALUES, SUBJECTS, createStudents, isValidStudentId } from '../shared/data.js';
 import { readJsonBody, sendError, sendJson, serveStatic } from '../shared/http.js';
 
 /** 받는 본문의 크기 제한: 16KB (명세 6). */
 export const BODY_LIMIT_BYTES = 16 * 1024;
-/** 종합의견 글자 수 제한(가상 데이터의 의견은 한두 문장이다). */
-export const COMMENT_MAX_LENGTH = 300;
 /** 표와 AI 서비스가 각각 담아 두는 최대 개수(메모리가 끝없이 차지 않게). */
 export const DEFAULT_MAX_ITEMS = 2000;
 
@@ -53,7 +51,7 @@ const MESSAGES = Object.freeze({
   notObject: '보낸 내용의 형식이 올바르지 않습니다. 정해진 항목을 담은 기록 하나를 보내 주세요.',
   badId: '학생 번호가 실습용 번호(TEST-1001 ~ TEST-1020)가 아니어서 받지 않았습니다.',
   badRatings: '평가 내용이 올바르지 않아서 받지 않았습니다. 과목은 국어·수학·사회·과학·영어, 값은 잘함·보통·노력요함만 받습니다.',
-  badComment: `종합의견이 올바르지 않아서 받지 않았습니다. ${COMMENT_MAX_LENGTH}자 이하의 글만 받습니다.`,
+  badComment: '종합의견이 그 학생 번호의 실습용 가상 문장과 달라서 받지 않았습니다. 이 프로그램은 가상 데이터만 받습니다.',
   notSynthetic: '실습용 가상 데이터의 모양이 아니어서 받지 않았습니다. 이 프로그램은 가상 데이터만 받습니다.',
   tooLarge: `보낸 내용이 너무 커서 받지 않았습니다. (허용 크기: ${BODY_LIMIT_BYTES / 1024}KB)`,
   invalidJson: '보낸 내용의 형식이 올바르지 않아서 받지 않았습니다.',
@@ -81,11 +79,12 @@ function ratingsOk(ratings) {
   return SUBJECTS.every((subject) => typeof ratings[subject] === 'string' && RATING_VALUES.includes(ratings[subject]));
 }
 
-function commentOk(comment) {
-  if (typeof comment !== 'string' || comment.length > COMMENT_MAX_LENGTH) return false;
-  // 줄바꿈·탭 말고 화면에 보이지 않는 제어 글자는 받지 않는다.
-  return !/[\0-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(comment);
-}
+/**
+ * 코드가 만든 가상 기록(번호 → 기록). 받는 값은 이것과 비교한다.
+ * 평가 다섯 개 말고는 어느 항목도 이 기록과 한 글자도 달라서는 안 된다
+ * (어떤 기능도 이름·반·의견·보호자 정보를 바꾸지 않는다). 그래서 손으로 쓴 글이 들어올 자리가 없다.
+ */
+const GENERATED = new Map(createStudents().map((record) => [record.id, record]));
 
 /** 정해진 항목 → 빠진 항목·더 있는 항목을 알려 주는 한국어 설명. */
 function keysError(body, keys) {
@@ -101,14 +100,15 @@ function validate(body, keys) {
   if (!isPlainObject(body)) return { ok: false, error: MESSAGES.notObject };
   if (!hasExactKeys(body, keys)) return { ok: false, error: keysError(body, keys) };
   if (!isValidStudentId(body.id)) return { ok: false, error: MESSAGES.badId };
-  // 번호가 같은 학생·보호자·연락처가 한 기록이다(명세 4.1). 그 모양이 아니면 받지 않는다.
-  const nn = body.id.slice(-2);
-  if (body.name !== `가상학생${nn}`) return { ok: false, error: MESSAGES.notSynthetic };
-  if (keys.includes('className') && body.className !== CLASS_NAME) return { ok: false, error: MESSAGES.notSynthetic };
-  if (keys.includes('guardianName') && body.guardianName !== `가상보호자${nn}`) return { ok: false, error: MESSAGES.notSynthetic };
-  if (keys.includes('guardianPhone') && body.guardianPhone !== `010-XXXX-00${nn}`) return { ok: false, error: MESSAGES.notSynthetic };
+  // 그 번호의 가상 기록과 비교한다(명세 4.1). 평가 말고는 글자 하나까지 같아야 받는다.
+  const generated = GENERATED.get(body.id);
+  if (!generated) return { ok: false, error: MESSAGES.badId };
+  for (const key of keys) {
+    if (key === 'id' || key === 'ratings' || key === 'comment') continue;
+    if (body[key] !== generated[key]) return { ok: false, error: MESSAGES.notSynthetic };
+  }
   if (!ratingsOk(body.ratings)) return { ok: false, error: MESSAGES.badRatings };
-  if (!commentOk(body.comment)) return { ok: false, error: MESSAGES.badComment };
+  if (body.comment !== generated.comment) return { ok: false, error: MESSAGES.badComment };
   return { ok: true };
 }
 

@@ -24,12 +24,16 @@ export async function closedPort() {
 /**
  * 시연 프로그램을 띄운다. receiver: true(기본)이면 진짜 받는 쪽 프로그램도 빈 포트에 띄운다.
  * receiver: false이면 받는 쪽 포트는 아무도 듣지 않는 포트다.
+ * receiverPort를 주면 받는 쪽을 띄우지 않고 그 포트를 받는 쪽 포트로 쓴다(검사가 띄운 대역용).
  */
 export async function startRig(t, options = {}) {
-  const { receiver: withReceiver = true, ...demoOptions } = options;
+  const { receiver: withReceiver = true, receiverPort: givenPort, ...demoOptions } = options;
   let receiver = null;
   let receiverPort;
-  if (withReceiver) {
+  if (givenPort !== undefined) {
+    // 검사가 직접 띄운 대역(받는 쪽 자리에 선 다른 서버)의 포트를 쓴다.
+    receiverPort = givenPort;
+  } else if (withReceiver) {
     receiver = createReceiver({ port: 0, publicDir: NO_SUCH_DIR });
     receiverPort = (await receiver.listen()).port;
   } else {

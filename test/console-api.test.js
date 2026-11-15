@@ -3,6 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 
 import * as content from '../src/console/content.js';
 import {
@@ -447,7 +448,9 @@ test('받는 쪽이 꺼져 있으면: "받는 쪽에 닿지 못했습니다"와 
   assert.ok(state.receiver.help.length >= 2);
   for (const line of state.receiver.help) assert.match(line, KOREAN);
   assert.deepEqual(state.receiver.sheet, []);
-  assert.equal(state.receiver.sheetCount, 0);
+  // 물어보지 못했으니 개수는 모른다. 0이라고 하지 않는다.
+  assert.equal(state.receiver.sheetCount, null);
+  assert.equal(state.receiver.aiCount, null);
 
   const teacher = await appLogin(rig.url1, 'teacher');
   const saved = await appCall(rig.url1, 'PUT', '/api/students/TEST-1003/ratings', { cookie: teacher, body: { ratings: { 수학: '잘함' } } });
@@ -465,6 +468,61 @@ test('받는 쪽이 꺼져 있으면: "받는 쪽에 닿지 못했습니다"와 
   assert.match(a.error, /받는 쪽/);
   assert.equal(a.status, null);
   assert.match(a.time, /^\d{4}-/);
+});
+
+/** 받는 쪽 자리에 서는 대역: 경로마다 정해 준 대답을 한다. 받은 요청을 순서대로 적어 둔다. */
+async function standIn(t, replies) {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      seen.push(`${req.method} ${req.url}`);
+      const reply = replies[req.url];
+      if (!reply) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end('{"error":"없는 주소"}');
+        return;
+      }
+      if (reply.hang) return; // 대답하지 않는다
+      res.writeHead(reply.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(reply.body));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }));
+  return { port: server.address().port, seen };
+}
+
+test('받는 쪽에 물어보지 못한 동안에는 개수가 null이다: 묻는 중, 닿지 못함, 읽지 못한 대답. 실제로 0이라고 대답했을 때만 0', async (t) => {
+  // 1) 아직 묻는 중(받는 쪽 자리의 대역이 대답하지 않고, 진행 화면은 기다리지 않고 첫 상태를 돌려준다)
+  const silent = await standIn(t, { '/api/received': { hang: true } });
+  const asking = await startRig(t, { receiverPort: silent.port, receiverWaitMs: 0, actionWaitMs: 0, receiverTimeoutMs: 600 });
+  const first = await asking.state();
+  assert.equal(first.receiver.reachable, null);
+  assert.deepEqual([first.receiver.sheetCount, first.receiver.aiCount], [null, null]);
+  assert.deepEqual([first.receiver.sheet, first.receiver.ai], [[], []]);
+
+  // 2) 끝내 대답이 없어 닿지 못함
+  const down = await waitFor(async () => {
+    const state = await asking.state();
+    return state.receiver.reachable === false ? state : null;
+  }, 8000, '닿지 못했다는 결과가 나오지 않았다');
+  assert.deepEqual([down.receiver.sheetCount, down.receiver.aiCount], [null, null]);
+
+  // 3) 대답은 했지만 받은 것을 알려 주지 않은 경우(500): 여전히 모른다. 결과 번호는 실제로 받은 것.
+  const broken = await standIn(t, { '/api/received': { status: 500, body: { error: '고장' } } });
+  const rig = await startRig(t, { receiverPort: broken.port, receiverWaitMs: 3000 });
+  const state = await rig.state();
+  assert.equal(state.receiver.reachable, false);
+  assert.equal(state.receiver.status, 500);
+  assert.equal(state.receiver.error, '받는 쪽의 대답을 읽지 못했습니다');
+  assert.deepEqual([state.receiver.sheetCount, state.receiver.aiCount], [null, null]);
+
+  // 4) 진짜 받는 쪽이 "아무것도 없다"고 대답했을 때만 0이다.
+  const real = await startRig(t);
+  const empty = await real.state();
+  assert.equal(empty.receiver.reachable, true);
+  assert.deepEqual([empty.receiver.sheetCount, empty.receiver.aiCount], [0, 0]);
 });
 
 test('받는 쪽이 다른 기기 주소이면 "다른 기기"로 표시한다 (닿지 못해도 표시는 주소로 정한다)', async (t) => {
@@ -675,6 +733,94 @@ test('전체 초기화: 받는 쪽에 닿지 못하면 알리고, 나머지는 �
   assert.equal(reset.json.state.receiver.host, '127.0.0.3', '받는 쪽 주소는 유지한다');
   assert.equal(reset.json.state.switch.on, false);
   assert.equal((await appCall(rig.url1, 'GET', '/api/roster')).json.length, 20);
+});
+
+test('전체 초기화: 받는 쪽이 대답은 했지만 지우기를 거절하면(500) "닿지 못했다"고 하지 않고 실제 대답을 알린다', async (t) => {
+  const held = { sheet: [{ receivedAt: '2000-01-01T00:00:00.000Z', from: '127.0.0.1', payload: { id: 'TEST-1001' } }], ai: [] };
+  const stand = await standIn(t, {
+    '/api/clear': { status: 500, body: { error: '지우지 못했습니다' } },
+    '/api/received': { status: 200, body: held },
+  });
+  const rig = await startRig(t, { receiverPort: stand.port, receiverWaitMs: 3000, actionWaitMs: 3000 });
+  await rig.post('/api/step', { to: 'scene2' });
+  const reset = await rig.post('/api/reset', {});
+  assert.equal(reset.status, 200);
+  assert.ok(stand.seen.includes('POST /api/clear'), '지우기 요청은 실제로 갔다');
+  assert.equal(reset.json.receiverCleared, false);
+  assert.equal(reset.json.notice, '받는 쪽은 지우지 못했습니다. 받는 쪽 화면에서 직접 지우세요');
+  // 이유: 대답은 왔다. 결과 번호는 실제로 받은 것이다.
+  assert.equal(reset.json.receiverAnswered, true);
+  assert.equal(reset.json.receiverStatus, 500);
+  assert.equal(reset.json.reason, content.TEXT.resetReceiverRefused);
+  assert.doesNotMatch(reset.json.reason, /닿지 못/);
+  const state = reset.json.state;
+  assert.deepEqual(
+    [state.lastReset.receiverCleared, state.lastReset.receiverAnswered, state.lastReset.receiverStatus, state.lastReset.reason],
+    [false, true, 500, content.TEXT.resetReceiverRefused],
+  );
+  // 받는 쪽 칸은 "닿지 못함"이 아니라, 지금 받는 쪽이 실제로 대답한 것을 보여준다(아직 남아 있다).
+  assert.equal(state.receiver.reachable, true);
+  assert.equal(state.receiver.error, null);
+  assert.equal(state.receiver.sheetCount, 1);
+  assert.equal(state.step.id, 'start');
+});
+
+test('전체 초기화: 받는 쪽이 대답하지 않으면 이유가 "대답하지 않았습니다"이고 결과 번호는 없다', async (t) => {
+  const rig = await startRig(t, { receiver: false, receiverTimeoutMs: 500, receiverWaitMs: 600 });
+  const reset = await rig.post('/api/reset', {});
+  assert.equal(reset.json.receiverCleared, false);
+  assert.equal(reset.json.receiverAnswered, false);
+  assert.equal(reset.json.receiverStatus, null);
+  assert.equal(reset.json.reason, content.TEXT.resetReceiverNoAnswer);
+  assert.notEqual(content.TEXT.resetReceiverNoAnswer, content.TEXT.resetReceiverRefused);
+  assert.equal(reset.json.state.receiver.reachable, false);
+  assert.deepEqual([reset.json.state.receiver.sheetCount, reset.json.state.receiver.aiCount], [null, null]);
+  // 성공한 초기화에는 이유가 없다.
+  const ok = await startRig(t);
+  const done = await ok.post('/api/reset', {});
+  assert.deepEqual([done.json.receiverCleared, done.json.receiverAnswered, done.json.receiverStatus, done.json.reason], [true, true, 200, null]);
+});
+
+test('전체 초기화: 보내는 중이던 공개 요청이 초기화 뒤에 도착하지 않고, 그 공개 결과는 버린다', async (t) => {
+  for (let round = 0; round < 5; round += 1) {
+    const rig = await startRig(t);
+    // 공개를 누르고, 끝나기를 기다리지 않고 바로 전체 초기화를 누른다.
+    const revealing = rig.post('/api/reveal', {});
+    const reset = await rig.post('/api/reset', {});
+    assert.equal(reset.status, 200);
+    assert.equal(reset.json.receiverCleared, true);
+    const total = reset.json.state.accessLog.total;
+    const reveal = await revealing;
+    assert.equal(reveal.status, 200);
+    await rig.app1.whenIdle();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const state = await rig.state();
+    assert.equal(state.revealed, false, '초기화 전에 시작한 공개의 결과는 쓰지 않는다');
+    assert.deepEqual(state.reveal, { revealed: false, running: false });
+    assert.equal(state.accessLog.total, total, '초기화가 끝난 뒤에 도착한 공개 요청이 없다');
+    assert.equal(total, 0);
+    assert.deepEqual(rig.receiver.received(), { sheet: [], ai: [] }, '초기화 뒤에 받는 쪽으로 간 것이 없다');
+    const teacher = await appLogin(rig.url1, 'teacher');
+    const record = (await appCall(rig.url1, 'GET', '/api/students/TEST-1001', { cookie: teacher })).json;
+    assert.ok(Object.values(record.ratings).includes('노력요함'), 'TEST-1001은 처음 평가 그대로다');
+    assert.deepEqual(state.taken.map((item) => item.studentCount), [0, 0]);
+    await rig.close();
+  }
+});
+
+test('전체 초기화 중에는 공개를 시작하지 않는다(409)', async (t) => {
+  const stand = await standIn(t, { '/api/clear': { hang: true }, '/api/received': { status: 200, body: { sheet: [], ai: [] } } });
+  const rig = await startRig(t, { receiverPort: stand.port, consoleOptions: { clearTimeoutMs: 1200 } });
+  const resetting = rig.post('/api/reset', {});
+  await waitFor(() => stand.seen.includes('POST /api/clear'), 5000, '지우기 요청이 가지 않았다');
+  const reveal = await rig.post('/api/reveal', {});
+  assert.equal(reveal.status, 409);
+  assert.equal(reveal.json.error, content.TEXT.resetRunning);
+  assert.equal(reveal.json.state.revealed, false);
+  const reset = await resetting;
+  assert.equal(reset.json.receiverAnswered, false);
+  assert.equal((await rig.state()).accessLog.total, 0);
 });
 
 test('전체 초기화: 아직 가는 중이던 전송이 받는 쪽에 도착한 뒤에 지운다', async (t) => {

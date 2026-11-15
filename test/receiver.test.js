@@ -338,3 +338,46 @@ test('화면 파일: 밖에서 가져오는 것이 없고, 직접 입력하는 �
     assert.doesNotMatch(text, /\bAPI\b|세션|바인딩/, `${file}: 어려운 낱말을 쓰지 않는다`);
   }
 });
+
+test('거절: 종합의견이 그 번호의 가상 데이터 문장과 한 글자라도 다르면 저장하지 않는다 (표·AI 모두)', async (t) => {
+  const { url } = await start(t);
+  const others = [
+    '홍길동 010-1234-5678 서울시 실제 주소',
+    '',
+    '의견',
+    student(2).comment, // 다른 번호의 가상 문장
+    `${student(1).comment} `,
+    `${student(1).comment}\n덧붙인 글`,
+    student(1).comment.slice(0, -1),
+  ];
+  for (const comment of others) {
+    await assertRejected(t, url, '/sheet/rows', { ...student(1), comment }, `표 comment=${JSON.stringify(comment)}`);
+    await assertRejected(t, url, '/ai/draft', { ...aiBody(1), comment }, `AI comment=${JSON.stringify(comment)}`);
+  }
+  // 평가를 바꾼 기록이어도 의견이 다르면 받지 않는다.
+  const allGood = Object.fromEntries(SUBJECTS.map((s) => [s, '잘함']));
+  await assertRejected(t, url, '/sheet/rows', { ...student(1), ratings: allGood, comment: '실제 의견' }, '표 평가 변경 + 다른 의견');
+  await assertRejected(t, url, '/ai/draft', { ...aiBody(1), ratings: allGood, comment: '실제 의견' }, 'AI 평가 변경 + 다른 의견');
+});
+
+test('받는 값: 스무 명 모두, 가상 데이터와 달라도 되는 것은 평가 다섯 개뿐이다', async (t) => {
+  const { url } = await start(t);
+  const allEffort = Object.fromEntries(SUBJECTS.map((s) => [s, '노력요함']));
+  for (const record of createStudents()) {
+    assert.equal(validateSheetRow({ ...record, ratings: allEffort }).ok, true, record.id);
+    assert.equal(validateAiRequest({ id: record.id, name: record.name, ratings: allEffort, comment: record.comment }).ok, true, record.id);
+    // 평가 말고 어느 항목이든 글자 하나만 달라도 받지 않는다.
+    for (const key of ['name', 'className', 'comment', 'guardianName', 'guardianPhone']) {
+      assert.equal(validateSheetRow({ ...record, [key]: `${record[key]}.` }).ok, false, `${record.id} ${key}`);
+    }
+    for (const key of ['name', 'comment']) {
+      const body = { id: record.id, name: record.name, ratings: record.ratings, comment: record.comment };
+      assert.equal(validateAiRequest({ ...body, [key]: `${body[key]}.` }).ok, false, `${record.id} AI ${key}`);
+    }
+  }
+  assert.equal((await post(`${url}/sheet/rows`, { ...student(7), ratings: allEffort })).status, 200);
+  assert.equal((await post(`${url}/ai/draft`, { ...aiBody(7), ratings: allEffort })).status, 200);
+  const data = await received(url);
+  assert.equal(data.sheet[0].payload.comment, student(7).comment);
+  assert.equal(data.ai[0].payload.comment, student(7).comment);
+});

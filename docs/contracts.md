@@ -58,7 +58,7 @@
 | `POST /api/clear` | 없음 | 200 `{ ok: true }` | 없음 |
 
 - `항목`은 `{ receivedAt, from, payload }`다. `receivedAt`은 ISO 형식 시각, `from`은 보낸 쪽 주소, `payload`는 받은 본문 그대로.
-- "가상 데이터 모양": `id`가 `TEST-1001`~`TEST-1020`, `name`이 `가상학생NN`, (온라인 표는) `className`이 `6학년 가상반`, `guardianName`이 `가상보호자NN`, `guardianPhone`이 `010-XXXX-00NN`이고 NN이 `id`와 같다. `ratings`는 정확히 5개 과목에 세 값 중 하나. `comment`는 300자 이하의 글.
+- "가상 데이터 모양": `id`가 `TEST-1001`~`TEST-1020`, `name`이 `가상학생NN`, (온라인 표는) `className`이 `6학년 가상반`, `guardianName`이 `가상보호자NN`, `guardianPhone`이 `010-XXXX-00NN`이고 NN이 `id`와 같다. `ratings`는 정확히 5개 과목에 세 값 중 하나. `comment`는 그 `id`의 가상 기록에 들어 있는 문장과 글자까지 같아야 한다(다른 글은 400). 곧, 받는 본문이 가상 기록과 다를 수 있는 곳은 `ratings`의 다섯 값뿐이다.
 - 거절한 본문은 저장하지 않는다. 400의 설명은 무엇이 맞지 않았는지 알려 준다(빠진 항목 수, 정해지지 않은 항목 수 등).
 - 방식이 다르면 405, 없는 경로는 404다.
 
@@ -92,9 +92,9 @@
 | `POST /api/switch` | `{ action: "on", confirmed: true }` \| `{ action: "extend" \| "off" \| "dismiss" }` | 없음 | 400 `on`인데 확인 값이 없거나 참이 아님 · 409 꺼져 있는데 `extend` · 400 모르는 동작 |
 | `POST /api/receiver` | `{ action: "set", host }` | 없음 | 400 받아들일 수 없는 주소(이유가 `error`에 온다. 값은 바뀌지 않는다) |
 | `POST /api/receiver` | `{ action: "ping" }` | `ping` — 아래 | 없음. **연결에 실패해도 200**이고 `ping.ok`가 `false`다 |
-| `POST /api/reveal` | 없음 | 없음(결과는 `state.reveal`) | 409 이미 보내는 중 |
+| `POST /api/reveal` | 없음 | 없음(결과는 `state.reveal`) | 409 이미 보내는 중 · 409 전체 초기화하는 중 |
 | `POST /api/part2` | `{ action: "next" \| "context" \| "reset" }` \| `{ action: "choose", which: "first" \| "second", choice: "refer" \| "talk" \| "observe" }` | 없음 | 409 순서 위반·없는 선택지(이유가 `error`에 온다) · 400 모르는 동작 |
-| `POST /api/reset` | 없음 | `receiverCleared`(참/거짓), `notice`(지우지 못했을 때의 문장 또는 `null`) | 409 이미 초기화하는 중. **받는 쪽에 닿지 못해도 200**이다 |
+| `POST /api/reset` | 없음 | `receiverCleared`(참/거짓), `notice`(지우지 못했을 때의 문장 또는 `null`), `receiverAnswered`(지우기 요청에 대답이 왔는가), `receiverStatus`(대답이 왔다면 실제로 받은 결과 번호, 아니면 `null`), `reason`(지우지 못한 이유의 문장 또는 `null`) | 409 이미 초기화하는 중. **받는 쪽을 지우지 못해도 200**이다 |
 | `GET /`, 화면 폴더의 파일 | 없음 | 200 파일(콘텐츠 보안 정책 머리글 포함) | 404 · 405 |
 
 단계 id: `start`, `scene1`, `scene2`, `scene3`, `scene4`, `reveal`, `part2`, `closing`.
@@ -116,11 +116,11 @@
 | `accessLog` | `{ epoch, latestId, total, entries[] }`. `entries`는 `since`보다 번호가 큰 줄 가운데 가장 최근 `limit`줄. `epoch`는 전체 초기화 때마다 바뀐다 — 바뀌었으면 이용자는 가진 줄을 버리고 처음부터 다시 받아야 한다 |
 | `accessLog.entries[]` | `{ id, at, time, app, appKey, appNo, clientAddress, samePc, otherDevice, sourceLabel, notice, loginId, loginLabel, method, path, request, status, fromNeighborScreen }`. **공개 뒤에만** `permissionChecked`, `permissionLabel`이 더해진다 |
 | `taken` | 앱마다 `{ appKey, app, studentCount, students[], rosterCount, rosterLabel, rosterViews, roster[] }` |
-| `receiver` | `{ host, port, base, location, locationLabel, reachable, checkedAt, status, error, help[], sheet[], ai[], sheetCount, aiCount, failedTransfers[], ping }`. `reachable`은 아직 묻지 않았으면 `null`. `sheet`·`ai`는 받는 쪽이 준 항목 그대로이며 가장 최근 300개까지, 전체 개수는 `sheetCount`·`aiCount` |
+| `receiver` | `{ host, port, base, location, locationLabel, reachable, checkedAt, status, error, help[], sheet[], ai[], sheetCount, aiCount, failedTransfers[], ping }`. `reachable`은 받는 쪽이 받은 것을 실제로 알려 주었으면 `true`, 닿지 못했거나 대답을 읽지 못했으면 `false`, 아직 묻는 중이면 `null`. `sheet`·`ai`는 받는 쪽이 준 항목 그대로이며 가장 최근 300개까지, 전체 개수는 `sheetCount`·`aiCount`. **`reachable`이 `true`가 아니면 `sheet`·`ai`는 빈 목록이고 `sheetCount`·`aiCount`는 `null`이다**(0이 아니다: 개수를 모른다는 뜻이다). 화면은 `null`을 "확인하지 못함"으로 적는다 |
 | `reveal` | 공개 전: `{ revealed: false, running }`. 공개 뒤: `{ revealed: true, running, runCount, ranAt, ranTime, attempts[], apps[], notes[], comparisonNotice, realRequestNote, appWithoutCheck, appWithCheck }`. `attempts[]`는 `{ no, title, method, path, request, loginId, sent, results: { app1: { status, body, error }, app2: { … } } }`이고 `status`가 `null`이면 대답을 받지 못한 것이다 |
 | `part2` | `{ stage, stageNo, stageCount, subject, journal[], facts, ai, choices, firstChoice, contextTotal, contexts[], noContextNote, secondChoice, comparison, explanation }`. 아직 열지 않은 것은 `null`(또는 빈 배열)이다 |
 | `closing` | 마무리 단계일 때만 `{ sentences: [{ no, text, emphasis }] }`, 그 밖에는 `null` |
-| `lastReset` | 마지막 전체 초기화 `{ at, time, receiverCleared, notice }` 또는 `null` |
+| `lastReset` | 마지막 전체 초기화 `{ at, time, receiverCleared, notice, receiverAnswered, receiverStatus, reason }` 또는 `null`. 뒤의 다섯 값은 `POST /api/reset`의 응답과 같다 |
 
 - 상태 읽기는 받는 쪽에 닿지 못해도 늦어지지 않는다. 받는 쪽 질의가 0.3초 안에 끝나지 않으면 직전 결과를 싣고, 새 결과는 다음 읽기에 반영된다. 받는 쪽에는 1초에 한 번을 넘겨 묻지 않는다.
 - 공개 전의 `state`에는 어느 앱이 권한을 확인하는지 알 수 있는 항목이 없다.

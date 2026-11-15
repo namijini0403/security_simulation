@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
+import vm from 'node:vm';
 
 import { CLOSING, PART2, REVEAL, STEPS, TEXT } from '../src/console/content.js';
 import { DEFAULT_PUBLIC_DIR } from '../src/console/server.js';
@@ -155,12 +156,39 @@ describe('진행 화면 파일의 내용', () => {
       TEXT.switchScopeOn, TEXT.switchWarning, TEXT.secondLaptopHint, TEXT.otherDeviceNotice, TEXT.notLoggedIn,
       TEXT.receiverSamePc, TEXT.receiverUnreachable, TEXT.receiverBadReply, ...TEXT.receiverHelp,
       TEXT.pingOk, TEXT.pingUnreachable, TEXT.pingTimeout, TEXT.pingWrongReply, ...strings(TEXT.pingCauses),
-      TEXT.resetReceiverFailed, TEXT.revealRunning, TEXT.revealNoReply,
+      TEXT.resetReceiverFailed, TEXT.resetReceiverNoAnswer, TEXT.resetReceiverRefused, TEXT.revealRunning, TEXT.revealNoReply,
     ].filter((line) => line.length >= 6);
     assert.ok(fromServer.length > 80);
     for (const line of fromServer) {
       assert.ok(!files.includes(line), `파일에 서버의 문구가 그대로 있다: ${line}`);
     }
+  });
+
+  test('도착한 것의 개수: 받는 쪽이 실제로 알려 준 수만 "N건"이고, 물어보지 못했으면 "확인하지 못함"이다', () => {
+    const script = read('console.js');
+    // 화면 스크립트의 두 함수를 그대로 꺼내 실행해 본다.
+    const pick = (name) => {
+      const found = new RegExp(`\\n  function ${name}\\([\\s\\S]*?\\n  \\}\\r?\\n`).exec(script);
+      assert.ok(found, `${name} 함수가 있어야 한다`);
+      return found[0];
+    };
+    const { countText, emptyListText } = vm.runInNewContext(`${pick('countText')}${pick('emptyListText')}({ countText, emptyListText })`);
+    assert.equal(countText(0), '0건');
+    assert.equal(countText(3), '3건');
+    assert.equal(countText(null), '확인하지 못함');
+    assert.equal(countText(undefined), '확인하지 못함');
+    assert.equal(emptyListText(true), '아직 도착한 것이 없습니다.');
+    for (const unknown of [false, null, undefined]) {
+      assert.doesNotMatch(emptyListText(unknown), /도착한 것이 없습니다/, String(unknown));
+      assert.doesNotMatch(emptyListText(unknown), /0건/, String(unknown));
+    }
+    assert.match(emptyListText(false), /확인하지 못했습니다/);
+    // 개수와 "없습니다" 문장은 이 두 함수를 거쳐서만 화면에 나간다.
+    assert.equal([...script.matchAll(/아직 도착한 것이 없습니다/g)].length, 1);
+    assert.doesNotMatch(script, /(sheetCount|aiCount)\}건/);
+    assert.match(script, /setText\(\$\('sheet-count'\), countText\(receiver\.sheetCount\)\)/);
+    assert.match(script, /setText\(\$\('ai-count'\), countText\(receiver\.aiCount\)\)/);
+    assert.equal([...script.matchAll(/receivedTable\(receiver\.(sheet|ai), [A-Z_]+, receiver\.reachable\)/g)].length, 2);
   });
 
   test('직접 타이핑하는 칸은 받는 쪽 주소 하나뿐이다', () => {

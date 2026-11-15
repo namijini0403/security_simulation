@@ -1,6 +1,7 @@
 // 성적 관리 앱 메인 화면 (두 앱이 똑같이 쓴다).
 // 화면이 보여주는 모든 것은 서버가 실제로 돌려준 응답에서만 만든다.
 // 서버가 돌려준 값은 전부 textContent로 그린다(HTML로 끼워 넣지 않는다).
+// 응답을 아예 받지 못했을 때(연결 실패)는 "연결하지 못했습니다"라고 적는다. 결과 번호는 지어내지 않는다.
 
 (function () {
   'use strict';
@@ -22,10 +23,18 @@
         try { json = text === '' ? undefined : JSON.parse(text); } catch (e) { json = undefined; }
         return { status: response.status, json: json };
       });
+    }).then(null, function (error) {
+      // 요청이 서버에 가지 못했거나 응답을 끝까지 받지 못했다(서버가 꺼졌거나 연결이 끊겼다).
+      // 응답이 없으므로 결과 번호도 없다(status: null). 번호를 지어내지 않는다.
+      var detail = error && typeof error.message === 'string' && error.message !== '' ? error.message : '';
+      return { status: null, json: undefined, failed: true, detail: detail };
     });
   }
 
+  var NO_CONNECTION = '연결하지 못했습니다. 서버가 켜져 있는지, 연결이 끊기지 않았는지 확인해 주세요.';
+
   function errorText(result, fallback) {
+    if (result.failed) return fallback + ' ' + NO_CONNECTION;
     if (result.json && typeof result.json.error === 'string') return result.json.error;
     return fallback + ' (결과 번호 ' + result.status + ')';
   }
@@ -261,14 +270,15 @@
   }
 
   function doLogout() {
-    ask('POST', '/api/logout').then(function () {
+    ask('POST', '/api/logout').then(function (result) {
       selectedId = null;
       hide('parent-view');
       hide('teacher-view');
       show('login-view');
       el('login-id').value = '';
       el('login-pw').value = '';
-      el('login-msg').textContent = '';
+      // 요청이 가지 못했다면 서버에는 로그인이 남아 있을 수 있다. 그 사실을 알린다.
+      el('login-msg').textContent = result.failed ? errorText(result, '로그아웃을 확인하지 못했습니다.') : '';
     });
   }
 
@@ -301,8 +311,12 @@
       }
     });
     ask('GET', '/api/me').then(function (result) {
-      if (result.status === 200 && result.json) applySession(result.json);
-      else show('login-view');
+      if (result.status === 200 && result.json) {
+        applySession(result.json);
+        return;
+      }
+      show('login-view');
+      if (result.failed) el('login-msg').textContent = NO_CONNECTION;
     });
   }
 

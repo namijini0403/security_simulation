@@ -1,6 +1,7 @@
 // 옆 사람 화면 (두 앱이 똑같이 쓴다).
 // 이 화면이 보내는 모든 요청에는 'X-Demo-Screen: neighbor' 표시를 붙인다(화면 표시용일 뿐).
 // 표시하는 것은 전부 실제 응답에서 만든다. 미리 정해 둔 성공·거절 문구는 없다.
+// 응답을 아예 받지 못했을 때(연결 실패)는 그 사실을 그대로 적고, 결과 번호는 '응답 없음'으로 둔다.
 
 (function () {
   'use strict';
@@ -32,7 +33,18 @@
         try { json = text === '' ? undefined : JSON.parse(text); } catch (e) { json = undefined; }
         return { status: response.status, json: json };
       });
+    }).then(null, function (error) {
+      // 요청이 서버에 가지 못했거나 응답을 끝까지 받지 못했다(서버가 꺼졌거나 연결이 끊겼다).
+      // 응답이 없으므로 결과 번호도 없다(status: null). 번호를 지어내지 않는다.
+      var detail = error && typeof error.message === 'string' && error.message !== '' ? error.message : '';
+      return { status: null, json: undefined, failed: true, detail: detail };
     });
+  }
+
+  // 응답을 받지 못했을 때 보여줄 글. 브라우저가 알려 준 내용이 있으면 그대로 붙인다.
+  function failureText(result) {
+    return '연결하지 못했습니다. 서버가 켜져 있는지, 연결이 끊기지 않았는지 확인해 주세요.'
+      + (result.detail ? ' (브라우저가 알려 준 내용: ' + result.detail + ')' : '');
   }
 
   function isStudentRecord(value) {
@@ -55,10 +67,16 @@
     appendPair(dl, '요청 주소', method + ' ' + path);
     appendPair(dl, '요청한 사람', who());
     appendPair(dl, '대상 학생 번호', studentId ? studentId : '-');
-    appendPair(dl, '결과 번호', String(result.status));
+    appendPair(dl, '결과 번호', result.failed ? '응답 없음' : String(result.status));
     entry.appendChild(dl);
 
-    entry.appendChild(renderReceived(result.json));
+    if (result.failed) {
+      var failure = document.createElement('div');
+      failure.textContent = failureText(result);
+      entry.appendChild(failure);
+    } else {
+      entry.appendChild(renderReceived(result.json));
+    }
 
     var feed = el('feed');
     feed.insertBefore(entry, feed.firstChild);
@@ -180,10 +198,14 @@
     var seen = {};
     var index = 1;
 
+    function finish() {
+      collecting = false;
+      el('btn-collect').disabled = false;
+    }
+
     function step() {
       if (index > 20) {
-        collecting = false;
-        el('btn-collect').disabled = false;
+        finish();
         return;
       }
       var id = studentNumber(index);
@@ -191,6 +213,12 @@
       var path = '/api/students/' + id;
       ask('GET', path).then(function (result) {
         addEntry('GET', path, id, result);
+        if (result.failed) {
+          // 응답을 받지 못했다: 서버가 거절한 것이 아니므로 세지 않고, 남은 번호는 보내지 않고 여기서 멈춘다.
+          // 버튼은 다시 누를 수 있다.
+          finish();
+          return;
+        }
         if (result.status === 200 && isStudentRecord(result.json)) {
           if (!seen[result.json.id]) {
             seen[result.json.id] = true;
@@ -210,7 +238,7 @@
           el('count-refused').textContent = String(refused);
         }
         setTimeout(step, COLLECT_GAP_MS);
-      });
+      }).then(null, finish); // 그리다가 문제가 생겨도 버튼이 잠긴 채 남지 않게 한다.
     }
     step();
   }

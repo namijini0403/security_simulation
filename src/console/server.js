@@ -126,6 +126,8 @@ export function createConsole(options) {
 
   let revealed = false;
   let revealRunning = false;
+  /** 지금 보내는 중인 공개(끝나면 null). 전체 초기화가 이것이 끝나기를 기다린다. */
+  let revealJob = null;
   let revealResult = null;
   let revealCount = 0;
 
@@ -143,8 +145,10 @@ export function createConsole(options) {
 
   // ------------------------------------------------------------------ 받는 쪽에 실제로 물어보기
 
+  // 받는 쪽에 제대로 물어보지 못한 상태(묻는 중이거나, 닿지 못했거나, 대답을 읽지 못했다).
+  // 예전에 받아 둔 목록은 보여주지 않는다. 그렇다고 "0건"이라고도 하지 않는다: 개수는 모르는 것(null)이다.
   const emptyReceived = (reachable, error, status = null) => ({
-    reachable, error, status, checkedAt: reachable === null ? null : now(), sheet: [], ai: [], sheetCount: 0, aiCount: 0,
+    reachable, error, status, checkedAt: reachable === null ? null : now(), sheet: [], ai: [], sheetCount: null, aiCount: null,
   });
   /** 가장 최근에 받는 쪽에 물어본 결과. gen은 주소가 바뀌거나 지웠을 때 커진다(옛 질의의 결과를 버리기 위해). */
   const received = { gen: 0, askedAt: -Infinity, view: emptyReceived(null, null), inflight: null };
@@ -504,14 +508,18 @@ export function createConsole(options) {
 
   /** 공개: 두 앱에 같은 다섯 요청을 실제로 보낸다. 다시 누르면 다시 보내고 결과를 바꿔 쓴다. */
   async function doReveal() {
+    // 초기화하는 동안에는 시작하지 않는다(초기화가 끝난 뒤의 상태에 공개 요청이 섞이지 않게).
+    if (resetting) throw new Refusal(409, TEXT.resetRunning);
     if (revealRunning) throw new Refusal(409, TEXT.revealRunning);
     revealRunning = true;
     const startedEpoch = epoch;
     try {
-      const outcomes = await Promise.all(apps.map((item) => runRevealOn(item.baseUrl, {
+      // runRevealOn은 거절하지 않고, 전체 시간(totalMs)이 지나면 남은 요청을 모두 그만둔다.
+      revealJob = Promise.all(apps.map((item) => runRevealOn(item.baseUrl, {
         timeoutMs: revealTimeoutMs,
         totalMs: revealTimeoutMs * 2,
       })));
+      const outcomes = await revealJob;
       if (startedEpoch !== epoch || closed) return; // 그 사이에 전체 초기화를 했다: 결과를 쓰지 않는다.
       const ranAt = now();
       revealCount += 1;
@@ -542,6 +550,7 @@ export function createConsole(options) {
       revealed = true;
     } finally {
       revealRunning = false;
+      revealJob = null;
     }
   }
 
@@ -572,6 +581,10 @@ export function createConsole(options) {
     resetting = true;
     try {
       epoch += 1;
+      // 보내는 중인 공개가 있으면 그 요청들이 모두 끝난 다음에 초기화한다
+      // (공개의 남은 요청이 초기화 뒤에 도착해 기록을 바꾸거나 받는 쪽으로 가지 않게).
+      // epoch를 먼저 올렸으므로 그 공개의 결과는 버려진다. 기다리는 시간은 공개 전체 시간으로 끝이 있다.
+      if (revealJob) await revealJob.catch(() => {});
       for (const item of apps) item.app.reset();
       stepIndex = 0;
       part2.reset();
@@ -584,24 +597,45 @@ export function createConsole(options) {
 
       // 아직 가는 중인 전송이 받는 쪽에 도착한 다음에 지우기를 요청한다(뒤늦게 도착해 남지 않게).
       await Promise.race([Promise.all(apps.map((item) => item.app.whenIdle())), sleep(idleWaitMs)]);
-      let cleared = false;
+      // 지우기 요청의 실제 결과: 대답이 왔는가(answered), 왔다면 그 결과 번호(status).
+      let answered = false;
+      let status = null;
       try {
         const response = await fetch(`${receiverAddress.base()}/api/clear`, {
           method: 'POST',
           redirect: 'error',
           signal: AbortSignal.timeout(clearTimeoutMs),
         });
+        status = response.status;
+        answered = true;
         await response.text();
-        cleared = response.status === 200;
       } catch {
-        cleared = false;
+        // 대답을 받지 못했거나(answered === false), 대답은 왔는데 본문을 끝까지 읽지 못했다.
       }
-      // 지우기 요청이 닿지 못했다면 그 실제 결과를 그대로 '닿지 못함'으로 보여준다.
-      dropReceived(cleared ? undefined : emptyReceived(false, TEXT.receiverUnreachable));
-      if (!cleared) received.askedAt = performance.now();
+      const cleared = answered && status === 200;
+      if (answered) {
+        // 대답은 왔다(지웠든 거절했든): 받는 쪽에 무엇이 남아 있는지는 곧바로 다시 물어서 보여준다.
+        dropReceived();
+      } else {
+        // 대답이 없었다: 그 실제 결과를 그대로 '닿지 못함'으로 보여준다.
+        dropReceived(emptyReceived(false, TEXT.receiverUnreachable));
+        received.askedAt = performance.now();
+      }
       const at = now();
-      lastReset = { at, time: isoTime(at), receiverCleared: cleared, notice: cleared ? null : TEXT.resetReceiverFailed };
-      return { receiverCleared: cleared, notice: lastReset.notice };
+      let reason = null;
+      if (!cleared) reason = answered ? TEXT.resetReceiverRefused : TEXT.resetReceiverNoAnswer;
+      const result = {
+        receiverCleared: cleared,
+        notice: cleared ? null : TEXT.resetReceiverFailed,
+        /** 지우기 요청에 대답이 왔는가. */
+        receiverAnswered: answered,
+        /** 대답이 왔다면 실제로 받은 결과 번호, 아니면 null. */
+        receiverStatus: status,
+        /** 지우지 못한 이유(지웠으면 null). */
+        reason,
+      };
+      lastReset = { at, time: isoTime(at), ...result };
+      return result;
     } finally {
       resetting = false;
     }
@@ -614,7 +648,7 @@ export function createConsole(options) {
     '/api/receiver': { run: (body) => doReceiver(body), force: (body) => body.action === 'set' },
     '/api/reveal': { run: () => doReveal(), force: () => true },
     '/api/part2': { run: (body) => doPart2(body) },
-    '/api/reset': { run: () => doReset(), force: (body, extra) => extra.receiverCleared === true, skip: (extra) => extra.receiverCleared === false },
+    '/api/reset': { run: () => doReset(), force: (body, extra) => extra.receiverAnswered === true, skip: (extra) => extra.receiverAnswered === false },
   };
 
   // ------------------------------------------------------------------ 접근 제한

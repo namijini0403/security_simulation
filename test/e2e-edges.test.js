@@ -63,7 +63,9 @@ test('발표 도중 받는 쪽이 꺼지면: 성적 저장은 그대로 되고, 
   assert.equal(down.receiver.help.length, 3);
   assert.ok(down.receiver.help.every((line) => KOREAN.test(line)));
   // 닿지 못하는 동안에는 예전에 받아 둔 것을 지금 것처럼 보여주지 않는다.
-  assert.deepEqual([down.receiver.sheetCount, down.receiver.aiCount], [0, 0]);
+  // 그렇다고 "0건"이라고 하지도 않는다. 물어보지 못했으니 개수는 모른다(null).
+  assert.deepEqual([down.receiver.sheet, down.receiver.ai], [[], []]);
+  assert.deepEqual([down.receiver.sheetCount, down.receiver.aiCount], [null, null]);
   assert.deepEqual(down.receiver.failedTransfers.map((item) => [item.app, item.kindLabel, item.studentId, item.status]), [
     ['1번 앱', '온라인 표', 'TEST-1004', null],
     ['1번 앱', 'AI 서비스', 'TEST-1004', null],
@@ -90,6 +92,7 @@ test('발표 도중 받는 쪽이 꺼지면: 성적 저장은 그대로 되고, 
   assert.equal(state.lastReset.receiverCleared, false);
   assert.equal(state.lastReset.notice, reset.json.notice);
   assert.equal(state.receiver.reachable, false);
+  assert.deepEqual([state.receiver.sheetCount, state.receiver.aiCount], [null, null], '지우지 못한 받는 쪽을 비었다고 하지 않는다');
   assert.equal(state.receiver.host, '127.0.0.9', '받는 쪽 주소는 초기화해도 그대로다');
   assert.equal(state.receiver.port, rig.receiverPort);
   assert.deepEqual(state.receiver.failedTransfers, []);
@@ -330,6 +333,7 @@ test('실제 정보가 들어올 통로가 없다: 받는 쪽은 가상 데이�
     ['정해지지 않은 평가 값', { ...valid, ratings: { ...valid.ratings, 국어: '92점' } }],
     ['정해지지 않은 과목', { ...valid, ratings: { ...valid.ratings, 체육: '잘함' } }],
     ['너무 긴 의견', { ...valid, comment: '가'.repeat(400) }],
+    ['손으로 쓴 의견(짧고 평범한 글이어도 가상 문장이 아니면)', { ...valid, comment: '아무개 010-1234-5678 어느 동네 주소' }],
   ];
   for (const [label, row] of refusedRows) {
     const res = await call(receiver, 'POST', '/sheet/rows', { body: row });
@@ -343,6 +347,7 @@ test('실제 정보가 들어올 통로가 없다: 받는 쪽은 가상 데이�
     ['AI: 실제처럼 보이는 번호', { ...aiValid, id: 'S-1' }],
     ['AI: 실제처럼 보이는 이름', { ...aiValid, name: '김아무개' }],
     ['AI: 정해지지 않은 항목(보호자 연락처)', { ...aiValid, guardianPhone: '010-XXXX-0003' }],
+    ['AI: 손으로 쓴 의견', { ...aiValid, comment: '아무개 학생은 요즘 집안 사정이 있습니다' }],
   ]) {
     assert.equal((await call(receiver, 'POST', '/ai/draft', { body })).status, 400, label);
   }

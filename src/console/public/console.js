@@ -311,7 +311,10 @@
     const reset = state.lastReset;
     const notice = reset && reset.notice && reset.at !== ui.resetNoticeClosedAt ? reset.notice : null;
     show($('reset-notice'), Boolean(notice));
-    setText($('reset-notice-text'), notice ? `${clock(reset.at)} 전체 초기화: ${notice}` : '');
+    // 이유와 결과 번호는 서버가 지우기 요청에서 실제로 받은 것이다(대답이 없었으면 번호도 없다).
+    const number = notice && typeof reset.receiverStatus === 'number' ? `, 결과 번호 ${reset.receiverStatus}` : '';
+    const reason = notice && reset.reason ? ` (${reset.reason}${number})` : '';
+    setText($('reset-notice-text'), notice ? `${clock(reset.at)} 전체 초기화: ${notice}${reason}` : '');
   }
 
   function renderStep() {
@@ -688,8 +691,20 @@
 
   // ------------------------------------------------------------------ 받는 쪽에 도착한 것
 
-  function receivedTable(items, columns) {
-    if (!items || items.length === 0) return el('p', 'empty', '아직 도착한 것이 없습니다.');
+  /** 개수 칸의 글자. 받는 쪽이 실제로 알려 준 개수만 "N건"으로 쓴다. 물어보지 못했으면(null) 모른다고 쓴다. */
+  function countText(count) {
+    return typeof count === 'number' ? `${count}건` : '확인하지 못함';
+  }
+
+  /** 목록이 비어 있을 때의 글자. "없다"는 말은 받는 쪽이 실제로 대답했을 때만 쓴다. */
+  function emptyListText(reachable) {
+    if (reachable === true) return '아직 도착한 것이 없습니다.';
+    if (reachable === false) return '받는 쪽에 물어보지 못해서, 도착한 것이 있는지 확인하지 못했습니다.';
+    return '받는 쪽에 물어보는 중입니다.';
+  }
+
+  function receivedTable(items, columns, reachable) {
+    if (!items || items.length === 0) return el('p', 'empty', emptyListText(reachable));
     const table = el('table', 'grid');
     const thead = el('thead');
     const head = el('tr');
@@ -773,10 +788,14 @@
       }
     }
 
-    setText($('sheet-count'), `${receiver.sheetCount}건`);
-    setText($('ai-count'), `${receiver.aiCount}건`);
-    if (changed('sheet', receiver.sheet)) clear($('sheet-box')).append(receivedTable(receiver.sheet, SHEET_COLUMNS));
-    if (changed('ai', receiver.ai)) clear($('ai-box')).append(receivedTable(receiver.ai, AI_COLUMNS));
+    setText($('sheet-count'), countText(receiver.sheetCount));
+    setText($('ai-count'), countText(receiver.aiCount));
+    if (changed('sheet', [receiver.reachable, receiver.sheet])) {
+      clear($('sheet-box')).append(receivedTable(receiver.sheet, SHEET_COLUMNS, receiver.reachable));
+    }
+    if (changed('ai', [receiver.reachable, receiver.ai])) {
+      clear($('ai-box')).append(receivedTable(receiver.ai, AI_COLUMNS, receiver.reachable));
+    }
 
     if (changed('failed', receiver.failedTransfers)) {
       const failed = receiver.failedTransfers || [];

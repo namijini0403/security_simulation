@@ -258,6 +258,18 @@ test('발표 전체: 시작 → ① → ② → ③ → ④ → 공개 → 2부 
     const changed = { ...initialOf('TEST-1001'), ratings: { ...ALL_GOOD } };
     assert.deepEqual(fix.json, changed);
 
+    // 로그인하지 않은 브라우저가 주소 끝에 teacher 를 붙여 연다. 메인 화면 파일이 오고,
+    // 그 화면(담임 화면)이 부르는 명단과 반 전체 기록이 로그인 없이 그대로 나온다. 방금 바뀐 성적도 들어 있다.
+    const direct = await ledger.send(1, 'GET', '/teacher');
+    assert.equal(direct.status, 200);
+    assert.equal(direct.text, (await ledger.send(1, 'GET', '/')).text, '첫 화면과 같은 파일이다');
+    const openRoster = await ledger.send(1, 'GET', '/api/roster');
+    assert.equal(openRoster.status, 200);
+    assert.equal(openRoster.json.length, 20);
+    const openAll = await ledger.send(1, 'GET', '/api/students');
+    assert.equal(openAll.status, 200);
+    assert.deepEqual(openAll.json.find((student) => student.id === 'TEST-1001'), changed);
+
     // 담임 화면에서 실제로 바뀐 것이 보인다.
     talk.teacher[1] = await ledger.login(1, 'teacher');
     const seen = await ledger.send(1, 'GET', '/api/students/TEST-1001', { who: talk.teacher[1] });
@@ -290,6 +302,16 @@ test('발표 전체: 시작 → ① → ② → ③ → ④ → 공개 → 2부 
     assert.deepEqual(Object.keys(list.json), ['error']);
     const fix = await ledger.send(2, 'PUT', '/api/students/TEST-1001/ratings', { who: talk.parent[2], neighbor: true, body: { ratings: ALL_GOOD } });
     assert.equal(fix.status, 403);
+
+    // 같은 주소(/teacher)를 2번 앱에서 열면 화면 파일은 똑같이 오지만, 그 화면이 부르는 요청은 로그인이 없어 거절된다.
+    const direct = await ledger.send(2, 'GET', '/teacher');
+    assert.equal(direct.status, 200);
+    assert.equal(direct.text, (await ledger.send(1, 'GET', '/teacher')).text, '두 앱이 같은 파일을 내준다');
+    for (const urlPath of ['/api/roster', '/api/students']) {
+      const refused = await ledger.send(2, 'GET', urlPath);
+      assert.equal(refused.status, 401, urlPath);
+      assert.deepEqual(Object.keys(refused.json), ['error']);
+    }
 
     talk.teacher[2] = await ledger.login(2, 'teacher');
     const seen = await ledger.send(2, 'GET', '/api/students/TEST-1001', { who: talk.teacher[2] });

@@ -33,6 +33,8 @@ export const DEFAULT_MAX_LOG_ENTRIES = 2000;
 /** 옆 사람 화면이 자기 요청에 붙이는 표시. 화면 표시용일 뿐 권한에는 아무 영향이 없다. */
 export const NEIGHBOR_HEADER = 'x-demo-screen';
 export const NEIGHBOR_HEADER_VALUE = 'neighbor';
+/** 메인 화면 파일이 담임 화면부터 그리는 주소. 어떤 화면을 그릴지만 정한다. 권한에는 아무 영향이 없다. */
+export const TEACHER_PAGE_PATH = '/teacher';
 
 const BODY_LIMIT_BYTES = 4 * 1024;
 const RECEIVER_REPLY_LIMIT = 64 * 1024;
@@ -632,6 +634,9 @@ export function createGradeApp(options) {
           let urlPath;
           if (pathname === '/') urlPath = '/index.html';
           else if (pathname === '/neighbor') urlPath = '/neighbor.html';
+          // 메인 화면 파일을 한 번 더 내주는 주소. 화면이 로그인 화면 대신 담임 화면을 그릴 뿐이고,
+          // 자료를 내줄지는 그 화면이 보내는 요청마다 decide()가 정한다(이 낱말은 decide()에 닿지 않는다).
+          else if (pathname === TEACHER_PAGE_PATH) urlPath = '/index.html';
           else urlPath = pathname;
           if (await serveStatic(req, res, publicDir, { urlPath })) {
             record(req, info, pathname, routeName, { status: 200, body: null, loginId });

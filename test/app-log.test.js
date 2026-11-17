@@ -356,6 +356,7 @@ describe('두 앱은 응답으로 구분할 수 없다', () => {
     await record('app', 'GET', '/api/app');
     await record('missing', 'GET', '/api/none');
     await record('page', 'GET', '/');
+    await record('page-teacher', 'GET', '/teacher');
     const parentLogin = await record('login-parent', 'POST', '/api/login', { body: { loginId: 'parent01', password: 'demo1234' } });
     const parent = parentLogin.cookie;
     await record('own', 'GET', '/api/students/TEST-1001', { cookie: parent });
@@ -393,7 +394,7 @@ describe('두 앱은 응답으로 구분할 수 없다', () => {
       contentType: item.headers['content-type'],
       cookies: item.setCookies.map((line) => line.replace(/^gsid_[ab]=[^;]*/, 'gsid_x=…')),
     });
-    const sameInBoth = ['one-none', 'me-none', 'login-bad', 'app', 'missing', 'page', 'login-parent', 'own', 'logout',
+    const sameInBoth = ['one-none', 'me-none', 'login-bad', 'app', 'missing', 'page', 'page-teacher', 'login-parent', 'own', 'logout',
       'login-teacher', 't-me', 't-roster', 't-put-bad', 't-put', 't-draft', 't-delete', 't-gone'];
     for (const label of sameInBoth) {
       assert.deepEqual(

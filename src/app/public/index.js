@@ -9,6 +9,12 @@
   var SUBJECTS = ['국어', '수학', '사회', '과학', '영어'];
   var RATING_VALUES = ['잘함', '보통', '노력요함'];
 
+  // 주소 끝의 낱말이 teacher이면 로그인 화면 대신 담임 화면부터 그린다.
+  // 이 낱말은 어떤 화면을 그릴지만 정한다. 자료를 내줄지는 요청을 받은 서버가 정하고,
+  // 화면은 그때 돌아온 응답대로 적는다(자료가 오면 자료를, 거절이 오면 서버의 거절 문장을).
+  var TEACHER_PATH = '/teacher';
+  var openedByAddress = Boolean(window.location) && window.location.pathname === TEACHER_PATH;
+
   var el = function (id) { return document.getElementById(id); };
 
   function ask(method, path, body) {
@@ -133,7 +139,7 @@
     resetDeleteRow();
     show('detail');
     el('detail-title').textContent = name + ' (' + id + ') 성적표';
-    ask('GET', '/api/students/' + encodeURIComponent(id)).then(function (result) {
+    askRecord(id).then(function (result) {
       var card = el('detail-card');
       if (result.status === 200 && result.json) {
         renderReport(card, result.json);
@@ -143,9 +149,28 @@
         clear(el('rating-editors'));
         var p = document.createElement('p');
         p.className = 'feedback';
-        p.textContent = errorText(result, '학생 기록을 불러오지 못했습니다.');
+        p.textContent = result.gone
+          ? '방금 받은 반 전체 기록에 이 학생이 없습니다. 명단을 새로 고쳐 주세요.'
+          : errorText(result, '학생 기록을 불러오지 못했습니다.');
         card.appendChild(p);
       }
+    });
+  }
+
+  // 학생 한 명의 기록을 서버에 묻는다.
+  // 보통은 그 학생의 주소로 묻는다. 주소 끝의 낱말로 연 담임 화면은 반 전체 기록을 받아 그 안에서 찾는다.
+  // 어느 쪽이든 누를 때마다 새로 묻고, 돌아온 응답만 그린다.
+  function askRecord(id) {
+    if (!openedByAddress) return ask('GET', '/api/students/' + encodeURIComponent(id));
+    return ask('GET', '/api/students').then(function (result) {
+      if (result.status === 200 && Array.isArray(result.json)) {
+        var found;
+        result.json.forEach(function (item) {
+          if (item && item.id === id) found = item;
+        });
+        return { status: result.status, json: found, gone: found === undefined };
+      }
+      return result;
     });
   }
 
@@ -310,6 +335,11 @@
         el('app-name').textContent = result.json.label;
       }
     });
+    if (openedByAddress) {
+      // 로그인했는지 묻지 않고 담임 화면부터 그린다. 명단과 기록은 서버가 내주는 만큼만 나온다.
+      showTeacher();
+      return;
+    }
     ask('GET', '/api/me').then(function (result) {
       if (result.status === 200 && result.json) {
         applySession(result.json);

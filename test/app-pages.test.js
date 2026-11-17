@@ -50,8 +50,8 @@ describe('화면 파일: 두 앱이 똑같이 내보낸다', () => {
     for (const name of FILES) assert.match(name, /^[a-z0-9.-]+\.(html|css|js)$/, name);
   });
 
-  test('/, /neighbor 와 모든 파일의 바이트가 두 앱에서 같고, 폴더의 파일 그대로다', async () => {
-    const targets = [['/', 'index.html'], ['/neighbor', 'neighbor.html'], ...FILES.map((name) => [`/${name}`, name])];
+  test('/, /teacher, /neighbor 와 모든 파일의 바이트가 두 앱에서 같고, 폴더의 파일 그대로다', async () => {
+    const targets = [['/', 'index.html'], ['/teacher', 'index.html'], ['/neighbor', 'neighbor.html'], ...FILES.map((name) => [`/${name}`, name])];
     for (const [urlPath, name] of targets) {
       const a = await bytes(apps.urlA, urlPath);
       const b = await bytes(apps.urlB, urlPath);
@@ -703,5 +703,175 @@ describe('옆 사람 화면의 버튼이 보내는 요청', () => {
     }
     assert.equal(statuses[4], 404);
     assert.equal(statuses.filter((status) => status === 200).length, 19);
+  });
+});
+
+// 주소 끝의 낱말(/teacher)로 메인 화면을 열면 로그인 화면 대신 담임 화면부터 그린다.
+// 화면 스크립트를 흉내 화면 위에서 그대로 실행하되, 요청은 진짜 앱 서버로 보낸다.
+// 화면에 나온 것이 그 순간 서버가 실제로 준 응답인지, 낱말이 서버의 판단을 바꾸지 못하는지 본다.
+describe('주소 끝의 낱말로 연 담임 화면: 화면은 같고, 자료는 서버가 내준 만큼만 나온다', () => {
+  const SUBJECT_NAMES = ['국어', '수학', '사회', '과학', '영어'];
+  let apps;
+  before(async () => {
+    apps = await startApps({ publicDir: DEFAULT_PUBLIC_DIR });
+  });
+  after(async () => {
+    await apps.a.whenIdle();
+    await apps.b.whenIdle();
+    await apps.close();
+  });
+
+  /** 쿠키 없이(로그인하지 않은 브라우저처럼) 진짜 서버에 보내고, 보낸 요청과 받은 결과 번호를 적어 둔다. */
+  function realFetch(base, calls) {
+    return async (urlPath, init) => {
+      const response = await fetch(base + urlPath, { method: init.method, headers: init.headers, body: init.body });
+      calls.push({ request: `${init.method} ${urlPath}`, status: response.status, cookie: init.headers.Cookie });
+      return response;
+    };
+  }
+  const settleNet = async (calls, count) => {
+    for (let i = 0; i < 400 && calls.length < count; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await settle();
+  };
+  function openAt(base, pathname, calls) {
+    const page = fakePage(read('index.html'), realFetch(base, calls), {
+      window: { addEventListener() {}, location: { pathname } },
+    });
+    vm.runInNewContext(read('index.js'), page.context);
+    return page;
+  }
+  const teacherCookie = async (base) => (await call(base, 'POST', '/api/login', { body: { loginId: 'teacher', password: 'teacher1234' } })).cookie;
+
+  test('두 앱 모두 /teacher 는 로그인 없이 같은 화면 파일을 내주고, 쿠키를 주지 않는다', async () => {
+    for (const base of [apps.urlA, apps.urlB]) {
+      const response = await call(base, 'GET', '/teacher');
+      assert.equal(response.status, 200);
+      assert.equal(response.text, read('index.html'));
+      assert.deepEqual(response.setCookies, []);
+    }
+  });
+
+  test('권한을 확인하지 않는 앱: 로그인 없이 명단 20명이 그려지고, 학생을 누르면 서버가 방금 준 기록이 나온다', async () => {
+    const calls = [];
+    const page = openAt(apps.urlA, '/teacher', calls);
+    await settleNet(calls, 2);
+    assert.deepEqual(calls.map((item) => item.request).sort(), ['GET /api/app', 'GET /api/roster']);
+    assert.ok(calls.every((item) => item.cookie === undefined), '로그인 없이 보낸 요청이다');
+    assert.equal(page.byId['teacher-view'].classList.contains('hidden'), false, '담임 화면이 보인다');
+    assert.equal(page.byId['login-view'].classList.contains('hidden'), true, '로그인 화면은 숨겨졌다');
+    const actual = (await call(apps.urlA, 'GET', '/api/roster')).json;
+    const buttons = page.byId['roster-list'].children;
+    assert.deepEqual(buttons.map((button) => button.textContent), actual.map((item) => `${item.name} (${item.id})`));
+    assert.equal(buttons.length, 20);
+
+    // 서버의 기록을 바꾼 다음에 누른다: 화면에 나오는 것은 미리 적어 둔 것이 아니라 누른 순간의 응답이다.
+    const changed = await call(apps.urlA, 'PUT', '/api/students/TEST-1004/ratings', { body: { ratings: { 수학: '노력요함', 영어: '노력요함' } } });
+    assert.equal(changed.status, 200);
+    buttons[3].fire('click');
+    await settleNet(calls, 3);
+    assert.equal(calls[2].request, 'GET /api/students');
+    assert.equal(calls[2].status, 200);
+    const record = (await call(apps.urlA, 'GET', '/api/students')).json.find((item) => item.id === 'TEST-1004');
+    const rows = page.byId['detail-card'].children[0].children.map((tr) => tr.children.map((cell) => cell.textContent));
+    assert.deepEqual(rows, [
+      ['이름', record.name],
+      ['학급', record.className],
+      ...SUBJECT_NAMES.map((subject) => [subject, record.ratings[subject]]),
+      ['담임 종합의견', record.comment],
+      ['보호자 이름', record.guardianName],
+      ['보호자 연락처', record.guardianPhone],
+    ]);
+    assert.equal(record.ratings['수학'], '노력요함');
+    assert.equal(page.byId.detail.classList.contains('hidden'), false);
+  });
+
+  test('권한을 확인하는 앱: 같은 주소로 열어도 서버가 내주지 않고, 화면에는 서버의 거절 문장이 나온다', async () => {
+    const calls = [];
+    const page = openAt(apps.urlB, '/teacher', calls);
+    await settleNet(calls, 2);
+    const roster = calls.find((item) => item.request === 'GET /api/roster');
+    const refusal = await call(apps.urlB, 'GET', '/api/roster');
+    assert.notEqual(refusal.status, 200);
+    assert.equal(roster.status, refusal.status);
+    assert.equal(page.byId['teacher-view'].classList.contains('hidden'), false, '화면의 틀은 똑같이 그려진다');
+    const list = page.byId['roster-list'];
+    assert.equal(list.children.length, 1);
+    assert.equal(list.children[0].textContent, refusal.json.error);
+    assert.doesNotMatch(list.text(), /가상학생|TEST-/);
+    assert.equal(apps.b.getAccessLog().filter((entry) => entry.status === 200 && (entry.students || entry.roster)).length, 0, '나간 기록이 없다');
+  });
+
+  test('권한을 확인하는 앱: 낱말·보낸 곳 머리글·물음표 뒤의 값으로는 판단이 바뀌지 않는다', async () => {
+    const plain = [];
+    const dressed = [];
+    const requests = [
+      ['GET', '/api/roster'],
+      ['GET', '/api/students'],
+      ['GET', '/api/students/TEST-1001'],
+      ['PUT', '/api/students/TEST-1001/ratings', { ratings: ALL_GOOD }],
+      ['POST', '/api/students/TEST-1001/ai-draft'],
+      ['DELETE', '/api/students/TEST-1020'],
+    ];
+    const before = (await call(apps.urlB, 'GET', '/api/students', { cookie: await teacherCookie(apps.urlB) })).json;
+    assert.equal(before.length, 20);
+    for (const [method, urlPath, body] of requests) {
+      plain.push((await call(apps.urlB, method, urlPath, { body })).status);
+    }
+    // /teacher 를 먼저 열고, 그 화면에서 보낸 것처럼 꾸며서 같은 요청을 보낸다.
+    assert.equal((await call(apps.urlB, 'GET', '/teacher')).status, 200);
+    for (const [method, urlPath, body] of requests) {
+      const response = await call(apps.urlB, method, `${urlPath}?page=teacher&role=teacher`, {
+        body,
+        headers: { Referer: `${apps.urlB}/teacher`, 'X-Role': 'teacher', Cookie: 'role=teacher; page=teacher' },
+      });
+      dressed.push(response.status);
+      assert.equal(typeof response.json.error, 'string');
+    }
+    assert.deepEqual(dressed, plain);
+    assert.ok(plain.every((status) => status !== 200));
+    // 학부모로 로그인한 브라우저가 /teacher 를 열어도 담임 요청은 거절된다(자기 아이 조회만 된다).
+    const parent = (await call(apps.urlB, 'POST', '/api/login', { body: { loginId: 'parent01', password: 'demo1234' } })).cookie;
+    assert.equal((await call(apps.urlB, 'GET', '/teacher', { cookie: parent })).status, 200);
+    const asParent = [];
+    for (const [method, urlPath, body] of requests) {
+      asParent.push((await call(apps.urlB, method, urlPath, { cookie: parent, body, headers: { Referer: `${apps.urlB}/teacher` } })).status);
+    }
+    assert.equal(asParent[2], 200, '자기 아이 조회');
+    assert.ok(asParent.filter((_, index) => index !== 2).every((status) => status !== 200));
+    // 아무것도 바뀌지 않았다.
+    assert.deepEqual((await call(apps.urlB, 'GET', '/api/students', { cookie: await teacherCookie(apps.urlB) })).json, before);
+  });
+
+  test('첫 주소(/)로 열면 로그인하지 않은 채로는 명단을 부르지 않고 두 앱 모두 로그인 화면이다', async () => {
+    for (const base of [apps.urlA, apps.urlB]) {
+      const calls = [];
+      const page = openAt(base, '/', calls);
+      await settleNet(calls, 2);
+      assert.deepEqual(calls.map((item) => item.request).sort(), ['GET /api/app', 'GET /api/me']);
+      assert.equal(page.byId['login-view'].classList.contains('hidden'), false);
+      assert.equal(page.byId['roster-list'].children.length, 0);
+    }
+  });
+
+  test('담임 화면을 여는 낱말은 /teacher 하나뿐이다: 비슷한 주소와 다른 방식은 두 앱 모두 한국어 404', async () => {
+    for (const base of [apps.urlA, apps.urlB]) {
+      for (const [method, urlPath] of [['GET', '/teacher/'], ['GET', '/Teacher'], ['GET', '/teacher.html'], ['GET', '/admin'], ['POST', '/teacher']]) {
+        const response = await call(base, method, urlPath);
+        assert.equal(response.status, 404, `${method} ${urlPath}`);
+        assert.match(response.json.error, /[가-힣]/);
+      }
+    }
+  });
+
+  test('화면 스크립트는 낱말을 주소의 경로에서만 읽고, 요청을 만드는 곳은 그 낱말을 모른다', () => {
+    const script = read('index.js');
+    assert.match(script, /var TEACHER_PATH = '\/teacher';/);
+    assert.equal((script.match(/window\.location/g) || []).length, 2);
+    assert.doesNotMatch(script, /location\.(search|hash|href)|document\.cookie|document\.referrer/);
+    const askBody = script.slice(script.indexOf('function ask('), script.indexOf('var NO_CONNECTION'));
+    assert.ok(askBody.length > 100);
+    assert.doesNotMatch(askBody, /openedByAddress|TEACHER_PATH|location/);
   });
 });

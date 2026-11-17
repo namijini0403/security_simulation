@@ -177,7 +177,7 @@ test('두 앱의 화면 파일은 바이트까지 같고, 응답은 5.3 표가 �
   const dir = path.join(ROOT, 'src', 'app', 'public');
   const files = fs.readdirSync(dir).filter((name) => fs.statSync(path.join(dir, name)).isFile());
   assert.ok(files.includes('index.html') && files.includes('neighbor.html') && files.includes('index.js') && files.includes('neighbor.js'));
-  const pages = [['/', 'index.html'], ['/neighbor', 'neighbor.html'], ...files.map((name) => [`/${name}`, name])];
+  const pages = [['/', 'index.html'], ['/teacher', 'index.html'], ['/neighbor', 'neighbor.html'], ...files.map((name) => [`/${name}`, name])];
   for (const [url, file] of pages) {
     const [ra, rb] = [await call(a, 'GET', url), await call(b, 'GET', url)];
     assert.equal(ra.status, 200, url);

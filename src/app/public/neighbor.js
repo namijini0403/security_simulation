@@ -9,11 +9,15 @@
   var SCREEN_HEADER = 'X-Demo-Screen';
   var SCREEN_MARK = 'neighbor';
   var COLLECT_GAP_MS = 150; // 반 전체 수집에서 요청 사이 간격(조정 가능).
+  var RECHECK_GAP_MS = 2000; // 들어주지 않은 응답 뒤에 "지금 누구인가"를 다시 묻는 최소 간격.
   var ALL_GOOD = { '국어': '잘함', '수학': '잘함', '사회': '잘함', '과학': '잘함', '영어': '잘함' };
 
-  var NOT_LOGGED_IN = 400 + 1; // 서버가 "로그인이 필요합니다"라고 답할 때의 결과 번호.
   var el = function (id) { return document.getElementById(id); };
   var currentLogin = null; // 마지막으로 로그인에 성공한 사람 또는 /api/me가 알려 준 사람.
+  // 기억한 로그인을 바꾸는 일(로그인·로그아웃 단추, /api/me 질문)마다 커지는 번호.
+  // 늦게 도착한 예전 /api/me 대답이 더 새로운 상태를 덮어쓰지 않게 하는 데 쓴다.
+  var whoSeq = 0;
+  var lastRecheckAt = null; // 마지막으로 다시 물은 시각(아직 없으면 null).
 
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
@@ -54,12 +58,6 @@
   // ---------------------------------------------------------------- 결과 한 줄 그리기
 
   function addEntry(method, path, studentId, result) {
-    // 서버가 "로그인이 필요하다"고 답했다면 지금은 로그인된 사람이 없는 것이다
-    // (예: 전체 초기화로 로그인이 풀린 경우). 기억해 둔 이름을 쓰지 않는다.
-    if (result.status === NOT_LOGGED_IN) {
-      currentLogin = null;
-      el('who').textContent = who();
-    }
     var entry = document.createElement('div');
     entry.className = 'entry';
 
@@ -140,8 +138,22 @@
 
   // ---------------------------------------------------------------- 버튼 하나하나
 
+  // 서버가 요청을 들어주지 않았다면(응답은 받았는데 결과 번호가 200이 아니다) 기억한 로그인이
+  // 지금도 맞는지 알 수 없다(예: 전체 초기화로 로그인이 풀렸다). 어떤 번호가 무슨 뜻인지 여기서
+  // 짐작하지 않고, 서버에 "지금 누구로 로그인되어 있는가"를 다시 물어 그 대답으로 기억을 고친다.
+  // 그런 다음에 결과 줄을 적으므로 '요청한 사람'은 서버의 실제 대답을 따른다.
+  // 다시 묻지 않는 경우: 응답을 받지 못했을 때, 200일 때, 기억한 로그인이 없을 때,
+  // 그리고 마지막으로 물은 지 RECHECK_GAP_MS가 지나지 않았을 때(거절이 이어져도 접속 기록이 넘치지 않게).
+  function confirmWho(result) {
+    if (result.failed || result.status === 200 || !currentLogin) return result;
+    var now = Date.now();
+    if (lastRecheckAt !== null && now - lastRecheckAt < RECHECK_GAP_MS) return result;
+    lastRecheckAt = now;
+    return refreshWho().then(function () { return result; });
+  }
+
   function oneShot(method, path, studentId, body) {
-    return ask(method, path, body).then(function (result) {
+    return ask(method, path, body).then(confirmWho).then(function (result) {
       addEntry(method, path, studentId, result);
       return result;
     });
@@ -149,8 +161,10 @@
 
   function doLogin() {
     var path = '/api/login';
+    whoSeq += 1; // 이보다 먼저 보낸 /api/me 질문의 대답은 이제 쓰지 않는다.
     ask('POST', path, { loginId: 'parent01', password: 'demo1234' }).then(function (result) {
       if (result.status === 200 && result.json && typeof result.json.loginId === 'string') {
+        whoSeq += 1;
         currentLogin = result.json.loginId;
       }
       el('who').textContent = who();
@@ -160,9 +174,13 @@
 
   function doLogout() {
     var path = '/api/logout';
+    whoSeq += 1; // 이보다 먼저 보낸 /api/me 질문의 대답은 이제 쓰지 않는다.
     ask('POST', path).then(function (result) {
       addEntry('POST', path, '-', result);
-      if (result.status === 200) currentLogin = null;
+      if (result.status === 200) {
+        whoSeq += 1;
+        currentLogin = null;
+      }
       el('who').textContent = who();
     });
   }
@@ -211,7 +229,7 @@
       var id = studentNumber(index);
       index += 1;
       var path = '/api/students/' + id;
-      ask('GET', path).then(function (result) {
+      ask('GET', path).then(confirmWho).then(function (result) {
         addEntry('GET', path, id, result);
         if (result.failed) {
           // 응답을 받지 못했다: 서버가 거절한 것이 아니므로 세지 않고, 남은 번호는 보내지 않고 여기서 멈춘다.
@@ -291,13 +309,20 @@
     });
   }
 
+  // 서버에 "지금 누구로 로그인되어 있는가"를 묻고 그 대답으로 기억을 고친다.
   function refreshWho() {
+    whoSeq += 1;
+    var asked = whoSeq;
     return ask('GET', '/api/me').then(function (result) {
+      // 묻고 나서 대답이 오기 전에 로그인·로그아웃을 눌렀거나 더 새로 물었다면, 이 대답은 예전 것이다.
+      if (asked !== whoSeq) return;
       if (result.status === 200 && result.json && typeof result.json.loginId === 'string') {
         currentLogin = result.json.loginId;
-      } else if (result.status > 0) {
+      } else if (!result.failed) {
+        // 응답은 받았는데 로그인한 사람을 알려 주지 않았다: 지금은 로그인된 사람이 없다.
         currentLogin = null;
       }
+      // 응답을 받지 못했으면 기억을 바꾸지 않는다.
       el('who').textContent = who();
     });
   }

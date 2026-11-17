@@ -149,6 +149,39 @@ describe('화면 파일의 내용', () => {
     assert.doesNotMatch(read('neighbor.js'), /\b(401|403|404)\b/);
   });
 
+  // 위의 "401·403·404라는 글자가 없다"는 검사는 `400 + 1`처럼 계산으로 만든 번호를 잡지 못한다.
+  // 그래서 화면 스크립트 두 개에서 주석과 따옴표 안의 글자를 걷어 낸 코드만 놓고 세 가지를 본다.
+  //  1) 숫자는 아래 목록에 있는 것만 쓴다(세는 데 쓰는 작은 수, 학생 수 20, 이름 붙인 간격 둘, 비교용 200).
+  //     400이나 401 같은 수는 적을 수 없다.
+  //  2) 100 이상인 수는 정해진 자리에만 온다: `=== 200` 비교와 간격 상수 선언 두 줄.
+  //     곱하기·거듭제곱·비트 옮기기와 글자를 숫자로 바꾸는 함수는 쓰지 않는다(작은 수로 큰 수를 만들 길이 없다).
+  //  3) 결과 번호(`.status`)를 견주는 상대는 글자 그대로의 200과 null뿐이다. 변수나 계산식과 견주면 실패한다.
+  //     이 규칙이 핵심이다: 번호를 어떻게 만들었든, 200 말고 다른 결과 번호를 기다리는 코드는 쓸 수 없다.
+  test('결과 번호를 계산으로 만들어 숨기지도 않는다: 숫자는 정해진 것만, 결과 번호는 200하고만 견준다', () => {
+    const ALLOWED_NUMBERS = ['0', '1', '2', '10', '20', '150', '200', '2000'];
+    const BIG_NUMBER_PLACES = [/===\s*200\b/g, /var COLLECT_GAP_MS = 150;/g, /var RECHECK_GAP_MS = 2000;/g];
+    for (const name of ['index.js', 'neighbor.js']) {
+      const code = read(name)
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+        .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
+      assert.doesNotMatch(code, /`/, `${name}: 백틱 글자는 쓰지 않는다(이 검사가 걷어 내지 못한다)`);
+      const numbers = [...code.matchAll(/(?<![\w$.])\d[\w.]*/g)].map((match) => match[0]);
+      assert.deepEqual([...new Set(numbers)].filter((number) => !ALLOWED_NUMBERS.includes(number)), [], `${name}: 정해지지 않은 숫자`);
+      let rest = code;
+      for (const place of BIG_NUMBER_PLACES) rest = rest.replace(place, '');
+      assert.deepEqual([...rest.matchAll(/(?<![\w$.])\d{3,}/g)].map((match) => match[0]), [], `${name}: 100 이상인 수가 정해진 자리 밖에 있다`);
+      assert.doesNotMatch(code, /\*|<<|>>|\bparseInt\b|\bparseFloat\b|\bNumber\b|\bMath\b|\beval\b|\bFunction\b|\batob\b|fromCharCode/, `${name}: 수를 만들어 내는 연산`);
+      const compared = [...code.matchAll(/\bstatus\s*(?:[!=]==?|[<>]=?)\s*([^\s;)&|?]+)/g)].map((match) => match[1]);
+      assert.ok(compared.length > 0, name);
+      assert.deepEqual(compared.filter((operand) => operand !== '200' && operand !== 'null'), [], `${name}: 결과 번호를 200·null 말고 다른 것과 견준다`);
+      // 뒤집어 쓴 비교(200 === x.status 가 아닌 다른 값 === x.status)도 없다.
+      const reversed = [...code.matchAll(/([^\s(&|?]+)\s*(?:[!=]==?|[<>]=?)\s*[\w.]*\bstatus\b/g)].map((match) => match[1]);
+      assert.deepEqual(reversed.filter((operand) => operand !== '200' && operand !== 'null'), [], `${name}: 결과 번호를 200·null 말고 다른 것과 견준다`);
+    }
+  });
+
   test('표시는 옆 사람 화면만 붙인다', () => {
     const neighborJs = read('neighbor.js');
     assert.match(neighborJs, /'X-Demo-Screen'/);
@@ -211,7 +244,7 @@ describe('화면 파일의 내용', () => {
 
 // 화면 스크립트를 아주 작은 흉내 화면(필요한 만큼만 만든 요소) 위에서 그대로 실행한다.
 // fetch가 거절되는 상황(서버가 꺼졌거나 연결이 끊김)에서 화면이 어떻게 되는지 본다.
-function fakePage(html, fetchImpl) {
+function fakePage(html, fetchImpl, extra = {}) {
   function node(tag) {
     const listeners = {};
     const classes = new Set();
@@ -258,6 +291,7 @@ function fakePage(html, fetchImpl) {
     fetch: fetchImpl,
     setTimeout: (fn) => { timers.push(fn); return timers.length; },
     JSON, String, Array, Object, Promise, encodeURIComponent,
+    ...extra,
   };
   return { byId, context, timers };
 }
@@ -373,6 +407,190 @@ describe('연결이 되지 않을 때의 화면 (fetch가 거절됨)', () => {
       assert.match(script, /status: null/, name);
       assert.doesNotMatch(script, /status: 0\b/, name);
     }
+  });
+});
+
+// '요청한 사람'은 화면이 기억한 이름이다. 서버가 요청을 들어주지 않았을 때는(결과 번호가 200이 아닐 때)
+// 그 줄을 적기 전에 서버에 "지금 누구로 로그인되어 있는가"를 다시 물어 그 대답대로 적는다.
+describe('옆 사람 화면의 요청한 사람: 들어주지 않은 응답을 받으면 서버에 다시 물어 적는다', () => {
+  // 흉내 서버: 검사가 정한 대로 대답하고, 받은 요청과 표시를 적어 둔다. 결과 번호는 검사가 정한 값이다.
+  function fakeServer() {
+    const server = {
+      calls: [],
+      marks: [],
+      me: null, // /api/me 가 알려 줄 로그인(없으면 로그인 안 함)
+      refuse: null, // 학생·명단 요청에 줄 거절(없으면 200)
+      held: null, // /api/me 대답을 붙잡아 둘 때 쓰는 약속
+    };
+    const reply = (status, body) => ({ status, text: () => Promise.resolve(body === undefined ? '' : JSON.stringify(body)) });
+    server.fetch = (urlPath, init) => {
+      server.calls.push(`${init.method} ${urlPath}`);
+      server.marks.push(init.headers['X-Demo-Screen']);
+      if (urlPath === '/api/app') return Promise.resolve(reply(200, { label: '앱' }));
+      if (urlPath === '/api/me') {
+        const answer = server.me ? reply(200, { role: 'parent', loginId: server.me, studentId: 'TEST-1001' }) : reply(server.noLogin, { error: '로그인이 필요합니다.' });
+        return server.held ? server.held.then(() => answer) : Promise.resolve(answer);
+      }
+      if (urlPath === '/api/login') {
+        server.me = 'parent01';
+        return Promise.resolve(reply(200, { role: 'parent', loginId: 'parent01', studentId: 'TEST-1001' }));
+      }
+      if (urlPath === '/api/logout') {
+        server.me = null;
+        return Promise.resolve(reply(200, { ok: true }));
+      }
+      if (server.refuse) return Promise.resolve(reply(server.refuse.status, { error: server.refuse.error }));
+      const id = urlPath.split('/').pop();
+      return Promise.resolve(reply(200, { id, name: '가상학생', ratings: {}, comment: '', guardianName: '', guardianPhone: '' }));
+    };
+    return server;
+  }
+  // 진짜 앱이 실제로 주는 결과 번호를 물어 와서 쓴다(검사에도 번호를 지어 적지 않는다).
+  let noLogin;
+  let noRight;
+  let apps;
+  before(async () => {
+    apps = await startApps({ publicDir: DEFAULT_PUBLIC_DIR });
+    noLogin = (await call(apps.urlB, 'GET', '/api/students/TEST-1001', { headers: NEIGHBOR })).status;
+    const parent = (await call(apps.urlB, 'POST', '/api/login', { body: { loginId: 'parent01', password: 'demo1234' } })).cookie;
+    noRight = (await call(apps.urlB, 'GET', '/api/students/TEST-1002', { cookie: parent, headers: NEIGHBOR })).status;
+    assert.notEqual(noLogin, 200);
+    assert.notEqual(noRight, 200);
+    assert.notEqual(noLogin, noRight);
+  });
+  after(async () => {
+    await apps.close();
+  });
+
+  async function open(clock = { now: 1000000 }) {
+    const server = fakeServer();
+    server.noLogin = noLogin;
+    const page = fakePage(read('neighbor.html'), server.fetch, { Date: { now: () => clock.now } });
+    vm.runInNewContext(read('neighbor.js'), page.context);
+    await settle();
+    page.byId['btn-login'].fire('click');
+    await settle();
+    assert.equal(page.byId.who.textContent, 'parent01');
+    server.calls.length = 0;
+    return { server, page, clock, top: () => page.byId.feed.children[0].text() };
+  }
+  const meCalls = (server) => server.calls.filter((line) => line === 'GET /api/me').length;
+
+  test('(a) 로그인이 풀린 뒤의 요청: 서버가 로그인이 필요하다고 답하고 /api/me도 그렇게 답하면 "로그인 안 함"으로 적는다', async () => {
+    const { server, page, top } = await open();
+    server.me = null; // 예: 전체 초기화로 서버의 로그인이 풀렸다
+    server.refuse = { status: noLogin, error: '로그인이 필요합니다.' };
+    page.byId['btn-mine'].fire('click');
+    await settle();
+    assert.deepEqual(server.calls, ['GET /api/students/TEST-1001', 'GET /api/me'], '줄을 적기 전에 다시 묻는다');
+    assert.match(top(), /요청한 사람\s+로그인 안 함/);
+    assert.match(top(), new RegExp(`결과 번호\\s+${noLogin}\\b`), '결과 번호는 실제로 받은 것 그대로다');
+    assert.equal(page.byId.who.textContent, '로그인 안 함');
+    // 이제 기억하는 로그인이 없으므로 또 거절당해도 다시 묻지 않는다.
+    page.byId['btn-list'].fire('click');
+    await settle();
+    assert.equal(meCalls(server), 1);
+    assert.match(top(), /요청한 사람\s+로그인 안 함/);
+  });
+
+  test('(b) 로그인은 그대로인데 거절당한 요청: /api/me가 여전히 parent01이라고 답하면 parent01로 적는다', async () => {
+    const { server, page, top } = await open();
+    server.refuse = { status: noRight, error: '권한이 없습니다.' };
+    page.byId['btn-pick'].fire('click');
+    await settle();
+    assert.equal(meCalls(server), 1);
+    assert.match(top(), /요청한 사람\s+parent01/);
+    assert.match(top(), new RegExp(`결과 번호\\s+${noRight}\\b`));
+    assert.equal(page.byId.who.textContent, 'parent01');
+  });
+
+  test('(b2) 같은 브라우저의 다른 창에서 다른 사람으로 바뀐 뒤 거절당하면 그 사람으로 적는다', async () => {
+    const { server, page, top } = await open();
+    server.me = 'teacher';
+    server.refuse = { status: noRight, error: '거절' };
+    page.byId['btn-fix'].fire('click');
+    await settle();
+    assert.match(top(), /요청한 사람\s+teacher/);
+  });
+
+  test('(c) 거절이 이어져도 다시 묻는 것은 정해진 간격에 한 번뿐이다(반 전체 수집 포함)', async () => {
+    const { server, page, clock, top } = await open();
+    server.refuse = { status: noRight, error: '권한이 없습니다.' };
+    page.byId['btn-collect'].fire('click');
+    for (let i = 0; i < 25; i += 1) {
+      await settle();
+      clock.now += 150;
+      const next = page.timers.shift();
+      if (next) next();
+    }
+    await settle();
+    assert.equal(server.calls.filter((line) => line.startsWith('GET /api/students/')).length, 20);
+    assert.equal(page.byId['count-refused'].textContent, '20');
+    // 20번 × 0.15초 = 3초 동안 거절 20번: 간격이 2초이므로 다시 물은 것은 두 번이다(처음, 그리고 2초 뒤).
+    assert.equal(meCalls(server), 2);
+    assert.match(top(), /요청한 사람\s+parent01/);
+    // 시간이 흐르지 않은 채 단추를 여러 번 눌러도 더 묻지 않는다.
+    for (const id of ['btn-pick', 'btn-list', 'btn-fix', 'btn-roster']) {
+      page.byId[id].fire('click');
+      await settle();
+    }
+    assert.equal(meCalls(server), 2);
+    // 간격이 지나면 다시 한 번 묻는다.
+    clock.now += 2000;
+    page.byId['btn-pick'].fire('click');
+    await settle();
+    assert.equal(meCalls(server), 3);
+  });
+
+  test('다시 묻지 않는 경우: 요청이 받아들여졌을 때(200), 응답을 받지 못했을 때, 기억하는 로그인이 없을 때', async () => {
+    const { server, page, top } = await open();
+    page.byId['btn-mine'].fire('click');
+    await settle();
+    assert.equal(meCalls(server), 0, '200이면 묻지 않는다');
+    assert.match(top(), /요청한 사람\s+parent01/);
+    const real = server.fetch;
+    page.context.fetch = (urlPath, init) => { real(urlPath, init); return Promise.reject(new TypeError('Failed to fetch')); };
+    page.byId['btn-mine'].fire('click');
+    await settle();
+    assert.equal(meCalls(server), 0, '응답을 받지 못했으면 묻지 않는다');
+    assert.match(top(), /요청한 사람\s+parent01/, '기억도 바꾸지 않는다');
+    assert.match(top(), /결과 번호\s+응답 없음/);
+  });
+
+  test('(d) 다시 묻는 요청을 포함해 모든 요청에 옆 사람 화면 표시가 붙는다', async () => {
+    const { server, page } = await open();
+    server.refuse = { status: noRight, error: '권한이 없습니다.' };
+    for (const id of ['btn-roster', 'btn-mine', 'btn-pick', 'btn-list', 'btn-fix', 'logout', 'btn-login']) {
+      page.byId[id].fire('click');
+      await settle();
+    }
+    assert.ok(server.calls.includes('GET /api/me'));
+    assert.ok(server.marks.length >= 8);
+    assert.deepEqual([...new Set(server.marks)], ['neighbor']);
+  });
+
+  test('늦게 온 /api/me 대답이 그 뒤의 로그아웃·로그인을 덮어쓰지 않는다', async () => {
+    const { server, page } = await open();
+    // 거절 → 다시 묻는 /api/me 를 붙잡아 둔다(대답이 늦는다).
+    let release;
+    server.held = new Promise((resolve) => { release = resolve; });
+    server.refuse = { status: noRight, error: '권한이 없습니다.' };
+    page.byId['btn-pick'].fire('click');
+    await settle();
+    assert.equal(meCalls(server), 1);
+    // 그 사이에 로그아웃을 눌러 서버가 받아 주었다.
+    const answerBeforeLogout = server.me;
+    page.byId.logout.fire('click');
+    await settle();
+    assert.equal(page.byId.who.textContent, '로그인 안 함');
+    // 붙잡아 둔 대답은 로그아웃 전의 것("parent01")이다. 이제 도착한다.
+    server.me = answerBeforeLogout;
+    release();
+    await settle();
+    server.me = null;
+    assert.equal(page.byId.who.textContent, '로그인 안 함', '늦게 온 예전 대답으로 되돌아가지 않는다');
+    // 붙잡혀 있던 요청의 줄도 적힌다(잃어버리지 않는다).
+    assert.ok(page.byId.feed.children.some((entry) => /GET \/api\/students\//.test(entry.text())));
   });
 });
 
